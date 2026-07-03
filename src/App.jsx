@@ -535,6 +535,72 @@ function buildTrendPoints(history, granularity) {
   return points;
 }
 
+function buildMonthlySummary(data) {
+  const totals = new Map();
+  const bump = (month, key, amount) => {
+    if (!month) return;
+    if (!totals.has(month)) totals.set(month, { month, income: 0, spending: 0 });
+    // Math.abs sidesteps inconsistent sign conventions between historical and
+    // live-logged transactions — safe here since we only need spend magnitude.
+    totals.get(month)[key] += Math.abs(Number(amount || 0));
+  };
+  for (const p of data.income || []) bump(p.date?.slice(0, 7), "income", p.amount);
+  for (const t of data.transactions || []) {
+    if (t.type === "expense" || t.type === "bill") bump(t.date?.slice(0, 7), "spending", t.amount);
+  }
+  return [...totals.values()].sort((a, b) => a.month.localeCompare(b.month));
+}
+function monthLabel(monthStr) {
+  const [y, m] = monthStr.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+}
+
+function MonthlyBarChart({ data }) {
+  const W = 700, H = 220, PAD_L = 58, PAD_R = 14, PAD_T = 14, PAD_B = 34;
+  const innerW = W - PAD_L - PAD_R;
+  const innerH = H - PAD_T - PAD_B;
+  const max = Math.max(...data.flatMap((d) => [d.income, d.spending]), 1);
+  const groupW = innerW / data.length;
+  const barW = Math.min(20, groupW * 0.32);
+  const x = (i) => PAD_L + groupW * i + groupW / 2;
+  const y = (v) => PAD_T + innerH - (v / max) * innerH;
+  const barH = (v) => (v / max) * innerH;
+  const [hover, setHover] = useState(null);
+  const gridLines = 4;
+
+  return (
+    <div style={{ width: "100%", overflowX: "auto" }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 460, display: "block" }} onMouseLeave={() => setHover(null)}>
+        {Array.from({ length: gridLines + 1 }).map((_, i) => {
+          const gy = PAD_T + (innerH / gridLines) * i;
+          const val = max - (max / gridLines) * i;
+          return (
+            <g key={i}>
+              <line x1={PAD_L} x2={W - PAD_R} y1={gy} y2={gy} stroke={LINE} />
+              <text x={PAD_L - 6} y={gy + 3} textAnchor="end" fontFamily={MONO} fontSize="10" fill={MUTE}>{fmtShort(val)}</text>
+            </g>
+          );
+        })}
+        {data.map((d, i) => (
+          <g key={d.month} onMouseEnter={() => setHover(i)}>
+            <rect x={x(i) - barW - 2} y={y(d.income)} width={barW} height={Math.max(barH(d.income), 0)} fill={TEAL} />
+            <rect x={x(i) + 2} y={y(d.spending)} width={barW} height={Math.max(barH(d.spending), 0)} fill={BRICK} />
+            <rect x={x(i) - groupW / 2} y={PAD_T} width={groupW} height={innerH} fill="transparent" />
+            <text x={x(i)} y={H - 14} textAnchor="middle" fontFamily={MONO} fontSize="9.5" fill={MUTE}>{monthLabel(d.month)}</text>
+          </g>
+        ))}
+      </svg>
+      {hover !== null && (
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontFamily: MONO, fontSize: 11.5, color: INK, paddingLeft: 4 }}>
+          <span style={{ color: MUTE }}>{monthLabel(data[hover].month)}</span>
+          <span style={{ color: TEAL }}>Income {fmt(data[hover].income)}</span>
+          <span style={{ color: BRICK }}>Spending {fmt(data[hover].spending)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TrendChart({ data, activeSeries }) {
   const W = 700, H = 230, PAD_L = 58, PAD_R = 14, PAD_T = 14, PAD_B = 26;
   const innerW = W - PAD_L - PAD_R;
@@ -634,6 +700,7 @@ function Ledger({ data, save, userEmail, onSignOut }) {
   const importInputRef = useRef(null);
 
   const chartData = useMemo(() => buildTrendPoints(data.history, granularity), [data, granularity]);
+  const monthlySummary = useMemo(() => buildMonthlySummary(data), [data]);
 
   const currentMonth = monthStr();
   const monthExpenses = data.expenses.filter((e) => e.month === currentMonth);
@@ -1131,6 +1198,14 @@ function Ledger({ data, save, userEmail, onSignOut }) {
           <p style={{ color: MUTE, fontSize: 12.5, fontFamily: MONO }}>{activeSeries.length === 0 ? "Pick at least one series above." : "Log a few changes to start seeing a trend."}</p>
         ) : (
           <TrendChart data={chartData} activeSeries={activeSeries} />
+        )}
+
+        {/* Monthly income vs spending */}
+        <SectionTitle note="from logged income, expenses & paid bills">Income vs Spending</SectionTitle>
+        {monthlySummary.length === 0 ? (
+          <p style={{ color: MUTE, fontSize: 12.5, fontFamily: MONO }}>Log some income or expenses to see this.</p>
+        ) : (
+          <MonthlyBarChart data={monthlySummary} />
         )}
 
         {/* Recent transactions */}
