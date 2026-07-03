@@ -415,7 +415,7 @@ function withSnapshot(nextData) {
 
 function pushTxn(nextData, txn) {
   const transactions = [...(nextData.transactions || []), { id: uid(), date: todayStr(), ...txn }];
-  return { ...nextData, transactions: transactions.slice(-300) };
+  return { ...nextData, transactions };
 }
 
 /* ---------- shared table primitives ---------- */
@@ -614,6 +614,8 @@ export default function BudgetLedger() {
   const [billPay, setBillPay] = useState({});
   const [debtPay, setDebtPay] = useState({});
   const [debtCorrect, setDebtCorrect] = useState({});
+  const [showAllIncome, setShowAllIncome] = useState(false);
+  const [showAllTxns, setShowAllTxns] = useState(false);
   const [importMsg, setImportMsg] = useState("");
   const importInputRef = useRef(null);
 
@@ -640,8 +642,10 @@ export default function BudgetLedger() {
   const incomeThisYear = data.income.filter((p) => p.date.slice(0, 4) === String(now.getFullYear())).reduce((s, p) => s + Number(p.amount || 0), 0);
   const last90 = data.income.filter((p) => inRange(p.date, 90));
   const avgMonthlyIncome = last90.reduce((s, p) => s + Number(p.amount || 0), 0) / 3;
-  const recentChecks = [...data.income].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
-  const avgPerCheck = recentChecks.length ? recentChecks.reduce((s, p) => s + Number(p.amount || 0), 0) / recentChecks.length : 0;
+  const sortedIncome = [...data.income].sort((a, b) => b.date.localeCompare(a.date));
+  const last8Checks = sortedIncome.slice(0, 8);
+  const avgPerCheck = last8Checks.length ? last8Checks.reduce((s, p) => s + Number(p.amount || 0), 0) / last8Checks.length : 0;
+  const visibleIncome = showAllIncome ? sortedIncome : last8Checks;
   const avgMonthlySpend = totalBills + totalCategoryLimits;
   const spendRatio = avgMonthlyIncome > 0 ? avgMonthlySpend / avgMonthlyIncome : null;
 
@@ -783,7 +787,8 @@ export default function BudgetLedger() {
 
   const toggleSeries = (key) => setActiveKeys((k) => k.includes(key) ? k.filter((x) => x !== key) : [...k, key]);
   const activeSeries = SERIES.filter((s) => activeKeys.includes(s.key));
-  const recentTxns = [...(data.transactions || [])].sort((a, b) => b.date.localeCompare(a.date) || 0).slice(0, 40);
+  const sortedTxns = [...(data.transactions || [])].sort((a, b) => b.date.localeCompare(a.date) || 0);
+  const visibleTxns = showAllTxns ? sortedTxns : sortedTxns.slice(0, 40);
   const resetToSeed = () => {
     if (!window.confirm("Reset everything to your starting bills, debts, and balances? This clears any changes you've made.")) return;
     save(buildSeedData());
@@ -869,10 +874,15 @@ export default function BudgetLedger() {
 
         {/* Income */}
         <SectionTitle note={`This mo. ${fmt(incomeThisMonth)} · Qtr ${fmt(incomeThisQuarter)} · Year ${fmt(incomeThisYear)} · Avg/check ${fmt(avgPerCheck)}`}>Income</SectionTitle>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+          <Btn small color={MUTE} onClick={() => setShowAllIncome((v) => !v)}>
+            {showAllIncome ? "show recent 8" : `show all ${sortedIncome.length}`}
+          </Btn>
+        </div>
         <Table>
           <thead><tr><Th>Date</Th><Th>Note</Th><Th align="right">Amount</Th><Th align="right"> </Th></tr></thead>
           <tbody>
-            {recentChecks.map((p) => (
+            {visibleIncome.map((p) => (
               <tr key={p.id}>
                 <Td mono>{p.date}</Td>
                 <Td muted>{p.note || "—"}</Td>
@@ -1076,12 +1086,17 @@ export default function BudgetLedger() {
         )}
 
         {/* Recent transactions */}
-        <SectionTitle note={`showing ${recentTxns.length} of ${(data.transactions || []).length}`}>Recent Activity</SectionTitle>
+        <SectionTitle note={`showing ${visibleTxns.length} of ${sortedTxns.length}`}>Recent Activity</SectionTitle>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+          <Btn small color={MUTE} onClick={() => setShowAllTxns((v) => !v)}>
+            {showAllTxns ? "show recent 40" : `show all ${sortedTxns.length}`}
+          </Btn>
+        </div>
         <Table>
           <thead><tr><Th>Date</Th><Th>Type</Th><Th>Description</Th><Th align="right">Amount</Th><Th>Account</Th></tr></thead>
           <tbody>
-            {recentTxns.length === 0 && <tr><Td colSpan={5} muted>Nothing logged yet.</Td></tr>}
-            {recentTxns.map((t) => (
+            {visibleTxns.length === 0 && <tr><Td colSpan={5} muted>Nothing logged yet.</Td></tr>}
+            {visibleTxns.map((t) => (
               <tr key={t.id}>
                 <Td mono muted>{t.date}</Td>
                 <Td muted style={{ textTransform: "capitalize" }}>{t.type.replace("-", " ")}</Td>
