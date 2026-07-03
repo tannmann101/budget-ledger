@@ -36,6 +36,28 @@ function getPaidRecord(bill, month) {
   return null;
 }
 
+const DEFAULT_CATEGORIES = [
+  { id: "cat-gas-groceries", name: "Gas/Groceries", limit: 700, chargeDebtId: "debt-my-cc" },
+  { id: "cat-rent", name: "Rent" },
+  { id: "cat-amazon", name: "Amazon" },
+  { id: "cat-adjustment", name: "Adjustment" },
+  { id: "cat-allowance", name: "Allowance" },
+  { id: "cat-clothes", name: "Clothes" },
+  { id: "cat-coffee", name: "Coffee" },
+  { id: "cat-consolidation-loan", name: "Consolidation Loan" },
+  { id: "cat-credit-card", name: "Credit Card" },
+  { id: "cat-eating-out", name: "Eating Out" },
+  { id: "cat-entertainment", name: "Entertainment" },
+  { id: "cat-gifts", name: "Gifts" },
+  { id: "cat-haircut", name: "Haircut" },
+  { id: "cat-holidays", name: "Holidays" },
+  { id: "cat-insurance", name: "Insurance" },
+  { id: "cat-phone", name: "Phone" },
+  { id: "cat-savings", name: "Savings" },
+  { id: "cat-utilities", name: "Utilities" },
+  { id: "cat-work-expense", name: "Work Expense" },
+];
+
 function buildSeedData() {
   const debts = [
     { id: "debt-wife-cc", name: "Rochelle's Credit Card", balance: 10292.67, rate: 16.15, minPayment: null, totalPaid: 0, totalCharged: 0 },
@@ -79,27 +101,7 @@ function buildSeedData() {
       { id: "bill-internet", name: "Internet", amount: 0, day: "", status: "projected", paidMonths: [] },
       { id: "bill-utility", name: "Water/Sewer/Trash (2BR flat rate)", amount: 60, day: "", status: "projected", paidMonths: [] },
     ],
-    categories: [
-      { id: "cat-gas-groceries", name: "Gas/Groceries", limit: 700, chargeDebtId: "debt-my-cc" },
-      { id: "cat-rent", name: "Rent" },
-      { id: "cat-amazon", name: "Amazon" },
-      { id: "cat-adjustment", name: "Adjustment" },
-      { id: "cat-allowance", name: "Allowance" },
-      { id: "cat-clothes", name: "Clothes" },
-      { id: "cat-coffee", name: "Coffee" },
-      { id: "cat-consolidation-loan", name: "Consolidation Loan" },
-      { id: "cat-credit-card", name: "Credit Card" },
-      { id: "cat-eating-out", name: "Eating Out" },
-      { id: "cat-entertainment", name: "Entertainment" },
-      { id: "cat-gifts", name: "Gifts" },
-      { id: "cat-haircut", name: "Haircut" },
-      { id: "cat-holidays", name: "Holidays" },
-      { id: "cat-insurance", name: "Insurance" },
-      { id: "cat-phone", name: "Phone" },
-      { id: "cat-savings", name: "Savings" },
-      { id: "cat-utilities", name: "Utilities" },
-      { id: "cat-work-expense", name: "Work Expense" },
-    ],
+    categories: DEFAULT_CATEGORIES,
     expenses: [
       { id: "hist-lr2yzol", categoryId: "cat-allowance", amount: 250, month: "2026-06" },
       { id: "hist-n34cd9g", categoryId: "cat-eatingout", amount: 80, month: "2026-05" },
@@ -736,6 +738,7 @@ function Ledger({ data, save, userEmail, onSignOut }) {
   const regularCategories = data.categories.filter((c) => !c.limit);
   const grocerySpent = groceryCategory ? categorySpend(groceryCategory.id) : 0;
   const groceryRemaining = (groceryCategory?.limit || 0) - grocerySpent;
+  const fixCategories = () => save({ ...data, categories: DEFAULT_CATEGORIES });
 
   const logGroceryExpense = () => {
     const amt = Number(groceryAmt);
@@ -1082,6 +1085,12 @@ function Ledger({ data, save, userEmail, onSignOut }) {
 
         {/* Log a spend */}
         <SectionTitle>Log a Spend</SectionTitle>
+        {regularCategories.length === 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, fontFamily: MONO, fontSize: 12, color: BRICK }}>
+            Categories are out of date on this ledger.
+            <Btn small color={BRICK} onClick={fixCategories}>Fix categories</Btn>
+          </div>
+        )}
         <Table>
           <thead><tr><Th>Category</Th><Th align="right">Amount</Th><Th align="right"> </Th></tr></thead>
           <tbody>
