@@ -78,12 +78,25 @@ function buildSeedData() {
       { id: "bill-utility", name: "Water/Sewer/Trash (2BR flat rate)", amount: 60, day: "", status: "projected", paidMonths: [] },
     ],
     categories: [
-      { id: "cat-grocery", name: "Groceries & Gas", limit: 700 },
-      { id: "cat-allowance", name: "Joint Allowance", limit: 200 },
-      { id: "cat-eatingout", name: "Eating Out", limit: 170 },
-      { id: "cat-entertainment", name: "Entertainment", limit: 140 },
-      { id: "cat-coffee", name: "Coffee", limit: 25 },
-      { id: "cat-fuel", name: "Fuel", limit: 20 },
+      { id: "cat-gas-groceries", name: "Gas/Groceries", limit: 700, chargeDebtId: "debt-my-cc" },
+      { id: "cat-rent", name: "Rent" },
+      { id: "cat-amazon", name: "Amazon" },
+      { id: "cat-adjustment", name: "Adjustment" },
+      { id: "cat-allowance", name: "Allowance" },
+      { id: "cat-clothes", name: "Clothes" },
+      { id: "cat-coffee", name: "Coffee" },
+      { id: "cat-consolidation-loan", name: "Consolidation Loan" },
+      { id: "cat-credit-card", name: "Credit Card" },
+      { id: "cat-eating-out", name: "Eating Out" },
+      { id: "cat-entertainment", name: "Entertainment" },
+      { id: "cat-gifts", name: "Gifts" },
+      { id: "cat-haircut", name: "Haircut" },
+      { id: "cat-holidays", name: "Holidays" },
+      { id: "cat-insurance", name: "Insurance" },
+      { id: "cat-phone", name: "Phone" },
+      { id: "cat-savings", name: "Savings" },
+      { id: "cat-utilities", name: "Utilities" },
+      { id: "cat-work-expense", name: "Work Expense" },
     ],
     expenses: [
       { id: "hist-lr2yzol", categoryId: "cat-allowance", amount: 250, month: "2026-06" },
@@ -603,8 +616,8 @@ function TrendChart({ data, activeSeries }) {
 export default function BudgetLedger() {
   const [data, save, status] = useLedgerData();
   const [newBill, setNewBill] = useState({ name: "", amount: "", day: "", status: "set" });
-  const [newCategory, setNewCategory] = useState({ name: "", limit: "" });
-  const [expenseInputs, setExpenseInputs] = useState({});
+  const [groceryAmt, setGroceryAmt] = useState("");
+  const [spendForm, setSpendForm] = useState({ categoryId: "", amount: "" });
   const [transferAmt, setTransferAmt] = useState("");
   const [granularity, setGranularity] = useState("week");
   const [activeKeys, setActiveKeys] = useState(["checking", "savings", "netWorth"]);
@@ -723,21 +736,34 @@ export default function BudgetLedger() {
     save(withSnapshot(next));
   };
 
-  /* ---- categories / expenses ---- */
-  const addCategory = () => {
-    if (!newCategory.name || !newCategory.limit) return;
-    save({ ...data, categories: [...data.categories, { id: uid(), name: newCategory.name, limit: Number(newCategory.limit) }] });
-    setNewCategory({ name: "", limit: "" });
+  /* ---- spending ---- */
+  const groceryCategory = data.categories.find((c) => c.limit);
+  const regularCategories = data.categories.filter((c) => !c.limit);
+  const grocerySpent = groceryCategory ? categorySpend(groceryCategory.id) : 0;
+  const groceryRemaining = (groceryCategory?.limit || 0) - grocerySpent;
+
+  const logGroceryExpense = () => {
+    const amt = Number(groceryAmt);
+    if (!amt || !groceryCategory) return;
+    const nextDebts = data.debts.map((d) => d.id === groceryCategory.chargeDebtId
+      ? { ...d, balance: Number(d.balance) + amt, totalCharged: (d.totalCharged || 0) + amt }
+      : d);
+    let next = pushTxn(
+      { ...data, expenses: [...data.expenses, { id: uid(), categoryId: groceryCategory.id, amount: amt, month: currentMonth }], debts: nextDebts },
+      { type: "expense", description: groceryCategory.name, amount: amt, account: debtNameById(groceryCategory.chargeDebtId) }
+    );
+    save(withSnapshot(next));
+    setGroceryAmt("");
   };
-  const removeCategory = (id) => save({ ...data, categories: data.categories.filter((c) => c.id !== id), expenses: data.expenses.filter((e) => e.categoryId !== id) });
-  const logExpense = (catId) => {
-    const amt = Number(expenseInputs[catId]);
-    if (!amt) return;
+  const logSpend = () => {
+    const catId = spendForm.categoryId || regularCategories[0]?.id;
+    const amt = Number(spendForm.amount);
+    if (!catId || !amt) return;
     const cat = data.categories.find((c) => c.id === catId);
     const nextChecking = Number(data.checking) - amt;
     let next = pushTxn({ ...data, expenses: [...data.expenses, { id: uid(), categoryId: catId, amount: amt, month: currentMonth }], checking: nextChecking }, { type: "expense", description: cat ? cat.name : "Expense", amount: amt, account: "Checking" });
     save(withSnapshot(next));
-    setExpenseInputs({ ...expenseInputs, [catId]: "" });
+    setSpendForm({ ...spendForm, amount: "" });
   };
 
   /* ---- debts ---- */
@@ -1030,33 +1056,46 @@ export default function BudgetLedger() {
           </tbody>
         </Table>
 
-        {/* Categories */}
-        <SectionTitle>Spending Categories</SectionTitle>
-        <Table>
-          <thead><tr><Th>Category</Th><Th align="right">Limit</Th><Th align="right">Spent</Th><Th align="right">Remaining</Th><Th align="right">Log</Th><Th> </Th></tr></thead>
-          <tbody>
-            {data.categories.map((c) => {
-              const spent = categorySpend(c.id);
-              const remaining = Number(c.limit || 0) - spent;
-              return (
-                <tr key={c.id}>
-                  <Td>{c.name}</Td>
-                  <Td align="right" mono>{fmt(Number(c.limit))}</Td>
-                  <Td align="right" mono style={{ color: remaining < 0 ? BRICK : INK }}>{fmt(spent)}</Td>
-                  <Td align="right" mono muted>{fmt(remaining)}</Td>
+        {/* Gas/Groceries budget */}
+        {groceryCategory && (
+          <>
+            <SectionTitle note={`${fmt(grocerySpent)} of ${fmt(groceryCategory.limit)} this month`}>Gas / Groceries Budget</SectionTitle>
+            <Table>
+              <thead><tr><Th align="right">Limit</Th><Th align="right">Spent</Th><Th align="right">Remaining</Th><Th align="right">Log a charge</Th></tr></thead>
+              <tbody>
+                <tr>
+                  <Td align="right" mono>{fmt(groceryCategory.limit)}</Td>
+                  <Td align="right" mono style={{ color: groceryRemaining < 0 ? BRICK : INK }}>{fmt(grocerySpent)}</Td>
+                  <Td align="right" mono muted>{fmt(groceryRemaining)}</Td>
                   <Td align="right">
-                    <Input value={expenseInputs[c.id] || ""} onChange={(v) => setExpenseInputs({ ...expenseInputs, [c.id]: v })} placeholder="0.00" type="number" width={80} onEnter={() => logExpense(c.id)} />
-                    {" "}<Btn small onClick={() => logExpense(c.id)}>log</Btn>
+                    <Input value={groceryAmt} onChange={setGroceryAmt} placeholder="0.00" type="number" width={80} onEnter={logGroceryExpense} />
+                    {" "}<Btn small onClick={logGroceryExpense}>log</Btn>
                   </Td>
-                  <Td align="right"><Btn small color={BRICK} onClick={() => removeCategory(c.id)}>del</Btn></Td>
                 </tr>
-              );
-            })}
+              </tbody>
+            </Table>
+            <p style={{ fontFamily: MONO, fontSize: 11, color: MUTE, margin: "6px 0 0" }}>
+              Charged to {debtNameById(groceryCategory.chargeDebtId)} — doesn't touch checking. Pay down the card in Debt Accounts above.
+            </p>
+          </>
+        )}
+
+        {/* Log a spend */}
+        <SectionTitle>Log a Spend</SectionTitle>
+        <Table>
+          <thead><tr><Th>Category</Th><Th align="right">Amount</Th><Th align="right"> </Th></tr></thead>
+          <tbody>
             <tr>
-              <Td><Input value={newCategory.name} onChange={(v) => setNewCategory({ ...newCategory, name: v })} placeholder="New category" width={140} /></Td>
-              <Td align="right"><Input value={newCategory.limit} onChange={(v) => setNewCategory({ ...newCategory, limit: v })} placeholder="Limit" type="number" width={80} /></Td>
-              <Td colSpan={3}></Td>
-              <Td align="right"><Btn small onClick={addCategory}>add</Btn></Td>
+              <Td>
+                <Select
+                  value={spendForm.categoryId || regularCategories[0]?.id}
+                  onChange={(v) => setSpendForm({ ...spendForm, categoryId: v })}
+                  options={regularCategories.map((c) => ({ id: c.id, label: c.name }))}
+                  width={180}
+                />
+              </Td>
+              <Td align="right"><Input value={spendForm.amount} onChange={(v) => setSpendForm({ ...spendForm, amount: v })} placeholder="0.00" type="number" width={90} onEnter={logSpend} /></Td>
+              <Td align="right"><Btn small onClick={logSpend}>log</Btn></Td>
             </tr>
           </tbody>
         </Table>
