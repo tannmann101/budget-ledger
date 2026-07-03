@@ -1195,7 +1195,7 @@ function Ledger({ data, save, userEmail, onSignOut }) {
           </div>
         </div>
         {chartData.length < 2 || activeSeries.length === 0 ? (
-          <p style={{ color: MUTE, fontSize: 12.5, fontFamily: MONO }}>{activeSeries.length === 0 ? "Pick at least one series above." : "Log a few changes to start seeing a trend."}</p>
+          <p style={{ color: MUTE, fontSize: 12.5, fontFamily: MONO }}>{activeSeries.length === 0 ? "Pick at least one series above." : "This needs at least 2 different days of activity to draw a line — check back tomorrow."}</p>
         ) : (
           <TrendChart data={chartData} activeSeries={activeSeries} />
         )}
