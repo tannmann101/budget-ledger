@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef } from "react";
 import { signOut } from "firebase/auth";
 import { auth } from "./firebase";
-import { useCloudLedger } from "./useCloudLedger";
+import { useCloudLedger, DEFAULT_DATA } from "./useCloudLedger";
 import AuthGate, { useAuthUser, Centered } from "./AuthGate";
 
 const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
@@ -391,9 +391,6 @@ function buildSeedData() {
   };
 }
 
-const DEFAULT_DATA = {
-  income: [], checking: 0, savings: 0, debts: [], bills: [], categories: [], expenses: [], transactions: [], history: [],
-};
 
 function withSnapshot(nextData) {
   const debtTotal = (nextData.debts || []).reduce((s, d) => s + Number(d.balance || 0), 0);
