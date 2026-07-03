@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Firebase local emulator artifacts
+firestore-debug.log
+firebase-debug.log
+ui-debug.log
+.firebase/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

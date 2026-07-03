@@ -1,4 +1,8 @@
-import React, { useState, useCallback, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef } from "react";
+import { signOut } from "firebase/auth";
+import { auth } from "./firebase";
+import { useCloudLedger } from "./useCloudLedger";
+import AuthGate, { useAuthUser, Centered } from "./AuthGate";
 
 const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 const SANS = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
@@ -11,8 +15,6 @@ const HEAD_BG = "#EFEFEC";
 const TEAL = "#2E6F62";
 const BRICK = "#B3432B";
 const GOLD = "#A5760F";
-
-const STORAGE_KEY = "budget-ledger:data";
 
 const fmt = (n) =>
   (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -393,30 +395,6 @@ const DEFAULT_DATA = {
   income: [], checking: 0, savings: 0, debts: [], bills: [], categories: [], expenses: [], transactions: [], history: [],
 };
 
-function useLedgerData() {
-  const [data, setData] = useState(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? { ...DEFAULT_DATA, ...JSON.parse(raw) } : buildSeedData();
-    } catch {
-      return buildSeedData();
-    }
-  });
-  const [status, setStatus] = useState("ready");
-
-  const save = useCallback((next) => {
-    setData(next);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      setStatus("ready");
-    } catch {
-      setStatus("error");
-    }
-  }, []);
-
-  return [data, save, status];
-}
-
 function withSnapshot(nextData) {
   const debtTotal = (nextData.debts || []).reduce((s, d) => s + Number(d.balance || 0), 0);
   const today = todayStr();
@@ -611,10 +589,34 @@ function TrendChart({ data, activeSeries }) {
   );
 }
 
-/* ---------- main ---------- */
+/* ---------- auth + cloud data wrapper ---------- */
 
-export default function BudgetLedger() {
-  const [data, save, status] = useLedgerData();
+export default function App() {
+  const user = useAuthUser();
+  const [data, save, status] = useCloudLedger(!!user);
+
+  return (
+    <AuthGate user={user} forbidden={status === "forbidden"}>
+      {status === "loading" && (
+        <Centered><span style={{ fontFamily: MONO, color: MUTE, fontSize: 13 }}>loading…</span></Centered>
+      )}
+      {status === "error" && (
+        <Centered><span style={{ fontFamily: MONO, color: BRICK, fontSize: 13 }}>Couldn't reach the ledger. Check your connection and reload.</span></Centered>
+      )}
+      {status === "ready" && data === null && (
+        <Centered>
+          <p style={{ fontFamily: MONO, fontSize: 12.5, color: MUTE, margin: "0 0 16px" }}>No shared ledger exists yet.</p>
+          <Btn onClick={() => save(buildSeedData())}>Create ledger with starting data</Btn>
+        </Centered>
+      )}
+      {status === "ready" && data !== null && (
+        <Ledger data={data} save={save} userEmail={user?.email} onSignOut={() => signOut(auth)} />
+      )}
+    </AuthGate>
+  );
+}
+
+function Ledger({ data, save, userEmail, onSignOut }) {
   const [newBill, setNewBill] = useState({ name: "", amount: "", day: "", status: "set" });
   const [groceryAmt, setGroceryAmt] = useState("");
   const [spendForm, setSpendForm] = useState({ categoryId: "", amount: "" });
@@ -632,11 +634,7 @@ export default function BudgetLedger() {
   const [importMsg, setImportMsg] = useState("");
   const importInputRef = useRef(null);
 
-  const chartData = useMemo(() => (data ? buildTrendPoints(data.history, granularity) : []), [data, granularity]);
-
-  if (status === "loading" || !data) {
-    return <div style={{ minHeight: "100vh", background: PAGE, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: MONO, color: MUTE }}>loading…</div>;
-  }
+  const chartData = useMemo(() => buildTrendPoints(data.history, granularity), [data, granularity]);
 
   const currentMonth = monthStr();
   const monthExpenses = data.expenses.filter((e) => e.month === currentMonth);
@@ -820,7 +818,7 @@ export default function BudgetLedger() {
     save(buildSeedData());
   };
 
-  /* ---- export / import (this device's local data only) ---- */
+  /* ---- export / import (manual backup — live sync handles cross-device updates) ---- */
   const exportData = () => {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -829,7 +827,7 @@ export default function BudgetLedger() {
     a.download = `household-ledger-${todayStr()}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    setImportMsg("Exported. Move that file to your other device and import it there.");
+    setImportMsg("Exported as a backup snapshot.");
   };
   const handleImportFile = (file) => {
     const reader = new FileReader();
@@ -864,16 +862,21 @@ export default function BudgetLedger() {
             <h1 style={{ fontFamily: SANS, fontSize: 22, fontWeight: 800, margin: 0 }}>Household Ledger</h1>
             <div style={{ fontFamily: MONO, fontSize: 11.5, color: MUTE }}>{new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" })}</div>
           </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <Btn small onClick={exportData}>export</Btn>
-            <Btn small onClick={() => importInputRef.current?.click()}>import</Btn>
-            <input
-              ref={importInputRef}
-              type="file"
-              accept="application/json"
-              style={{ display: "none" }}
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportFile(f); e.target.value = ""; }}
-            />
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+            <div style={{ display: "flex", gap: 6 }}>
+              <Btn small onClick={exportData}>export</Btn>
+              <Btn small onClick={() => importInputRef.current?.click()}>import</Btn>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept="application/json"
+                style={{ display: "none" }}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportFile(f); e.target.value = ""; }}
+              />
+            </div>
+            <div style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE }}>
+              {userEmail} · <span onClick={onSignOut} style={{ cursor: "pointer", textDecoration: "underline" }}>sign out</span>
+            </div>
           </div>
         </div>
         {importMsg && (
@@ -1148,7 +1151,7 @@ export default function BudgetLedger() {
         </Table>
 
         <div style={{ marginTop: 24, fontFamily: MONO, fontSize: 10.5, color: MUTE, textAlign: "center" }}>
-          Saved automatically on this device. <span onClick={resetToSeed} style={{ cursor: "pointer", textDecoration: "underline" }}>Reset to starting data</span>
+          Synced live with your household. <span onClick={resetToSeed} style={{ cursor: "pointer", textDecoration: "underline" }}>Reset to starting data</span>
         </div>
       </div>
     </div>
