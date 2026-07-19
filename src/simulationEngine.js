@@ -11,7 +11,8 @@ export const DEFAULT_ASSUMPTIONS = {
   takeHomeRate: 0.7776,
   baseHourlyRate: 24.22,
   otHoursPerPeriod: 0,
-  otNetPerHour: 28.25,
+  otHourlyRate: 28.25,
+  onCallEventsPerMonth: 2, // placeholder — a Saturday shift or a week of PCC hotline on-call, adjust to your real schedule
   certRaiseMonthly: 81.0,
   certBonusAmount: 2500,
   allocationSplit: 0.7,
@@ -20,20 +21,20 @@ export const DEFAULT_ASSUMPTIONS = {
   extraDebtPaymentPerPeriod: 0,
 };
 
-export const ONCALL_CYCLE_DEFAULT = [250, 250, 125, 250, 125];
-// Placeholder per-pay-period cycle. Replace with real figures once known,
-// same as the Excel model used real Aug-Dec 2026 numbers before falling
-// back to a repeating assumption.
+export const ONCALL_EVENT_RATE = 250; // $/event, gross — a Saturday shift or a week of on-call
 
 export function periodToDate(startDate, p) {
   return new Date(startDate.getTime() + p * PERIOD_DAYS * 86400000);
 }
 
+// OT and on-call are both gross pay, taxed at the same take-home rate as
+// base pay before landing in the bank — neither is a tax-free add-on.
 export function payBreakdown(assumptions, certsToDate) {
   const baseline = assumptions.baseHourlyRate * 80 * assumptions.takeHomeRate;
-  const ot = assumptions.otHoursPerPeriod * assumptions.otNetPerHour;
+  const ot = assumptions.otHoursPerPeriod * assumptions.otHourlyRate * assumptions.takeHomeRate;
+  const onCall = assumptions.onCallEventsPerMonth * ONCALL_EVENT_RATE * assumptions.takeHomeRate * (12 / 26);
   const certRaise = certsToDate * ((assumptions.certRaiseMonthly * 12) / 26);
-  return { baseline, ot, certRaise, total: baseline + ot + certRaise };
+  return { baseline, ot, onCall, certRaise, total: baseline + ot + onCall + certRaise };
 }
 
 /**
@@ -42,7 +43,6 @@ export function payBreakdown(assumptions, certsToDate) {
  * @param {number} savings
  * @param {Object} assumptions  see DEFAULT_ASSUMPTIONS
  * @param {Array}  [oneOffs]    [{ label, amount, startPeriod, recurring }]
- * @param {Array}  [oncallCycle]
  * @param {number} [periods]
  * @param {Date}   [startDate]
  */
@@ -51,7 +51,6 @@ export function simulate({
   savings,
   assumptions,
   oneOffs = [],
-  oncallCycle = ONCALL_CYCLE_DEFAULT,
   periods = 100,
   startDate = new Date(),
 }) {
@@ -67,15 +66,11 @@ export function simulate({
   const rows = [{ period: 0, date: startDate, debt: d.reduce((s, x) => s + x.balance, 0), savings: sav, interestToDate: 0 }];
 
   for (let p = 1; p <= periods; p++) {
-    const oncallGross = oncallCycle[(p - 1) % oncallCycle.length];
-    const oncallNet = oncallGross * assumptions.takeHomeRate;
-
     const willCert = certAccumulator + 1 >= cadencePeriods ? 1 : 0;
     certAccumulator = willCert ? certAccumulator + 1 - cadencePeriods : certAccumulator + 1;
     certsToDate += willCert;
 
-    const { total: baseTotal } = payBreakdown(assumptions, certsToDate);
-    const netPay = baseTotal + oncallNet;
+    const { total: netPay } = payBreakdown(assumptions, certsToDate);
     const fixedBillsPeriod = (assumptions.fixedBillsMonthly * 12) / 26;
     const committedMin = d.reduce((s, x) => s + ((Number(x.minPayment) || 0) * 12) / 26, 0);
     const surplus = netPay - fixedBillsPeriod - committedMin;

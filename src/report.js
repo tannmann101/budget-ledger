@@ -18,7 +18,8 @@ const ASSUMPTION_FIELDS = [
   ["baseHourlyRate", "Base rate ($/hr)"],
   ["takeHomeRate", "Take-home rate (0-1)"],
   ["otHoursPerPeriod", "OT hrs/pay period"],
-  ["otNetPerHour", "OT rate ($/hr)"],
+  ["otHourlyRate", "OT rate ($/hr, gross)"],
+  ["onCallEventsPerMonth", "On-call/Sat events per mo ($250 ea, gross)"],
   ["certCadenceDays", "Cert cadence (days)"],
   ["certRaiseMonthly", "Cert raise ($/mo)"],
   ["certBonusAmount", "Cert bonus ($)"],
@@ -41,7 +42,7 @@ function assumptionLines(assumptions) {
 const METHODOLOGY = [
   "Each pay period (bi-weekly, ~14 days) is simulated forward from today:",
   "",
-  "- **Net pay** = (base hourly rate × 80 hrs × take-home rate) + (OT hours × OT rate) + on-call pay (a placeholder cycle) + accumulated cert raises. Each cert earned, at the configured cadence, permanently adds (cert raise/mo × 12/26) to every future period's net pay — raises compound as more certs are earned.",
+  "- **Net pay** = (base hourly rate × 80 hrs × take-home rate) + (OT hours × OT rate × take-home rate) + (on-call/Saturday events per month × $250/event × take-home rate, prorated to a pay period) + accumulated cert raises. OT and on-call are gross pay taxed at the same take-home rate as base pay, never a tax-free add-on. Each cert earned, at the configured cadence, permanently adds (cert raise/mo × 12/26) to every future period's net pay — raises compound as more certs are earned.",
   "- **Committed spend** = fixed bills (a flat monthly figure, prorated per period) + each debt's real minimum payment. Net pay minus committed spend is the surplus available that period; the extra-debt-payment lever, if set, adds to it directly.",
   "- **Debt payoff** uses the avalanche method: the highest-rate debt gets 100% of the surplus (plus any cert-bonus share and minimum payments freed up from debts that finish paying off) each period, until it's paid off, then the next-highest-rate debt takes over. Every debt accrues interest each period at its own annual rate ÷ 26, applied to the balance before that period's payment.",
   "- **Cert bonuses** (one-time, on the same cadence as the raise) split between extra debt payment and savings per the allocation split.",
