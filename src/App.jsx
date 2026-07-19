@@ -3,6 +3,7 @@ import { signOut } from "firebase/auth";
 import { auth } from "./firebase";
 import { useCloudLedger, DEFAULT_DATA } from "./useCloudLedger";
 import AuthGate, { useAuthUser, Centered } from "./AuthGate";
+import Plan from "./Plan";
 
 const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 const SANS = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
@@ -1207,6 +1208,8 @@ function Ledger({ data, save, userEmail, onSignOut }) {
         ) : (
           <MonthlyBarChart data={monthlySummary} />
         )}
+
+        <Plan data={data} save={save} />
 
         {/* Recent transactions */}
         <SectionTitle note={`showing ${visibleTxns.length} of ${sortedTxns.length}`}>Recent Activity</SectionTitle>
