@@ -1,5 +1,8 @@
 import { useState, useMemo } from "react";
 import { simulate, DEFAULT_ASSUMPTIONS, payBreakdown } from "./simulationEngine";
+import { buildReport } from "./report";
+
+const todayStr = () => new Date().toISOString().slice(0, 10);
 
 const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 const SANS = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
@@ -131,6 +134,17 @@ export default function Plan({ data, save }) {
   };
   const resetWhatIf = () => setWhatIf(assumptions);
 
+  const downloadReport = () => {
+    const md = buildReport({ data, plan, whatIfPlan, changed, assumptions, whatIf });
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `household-ledger-report-${todayStr()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const payNow = payBreakdown(whatIf, 0);
   const payAfterNextCert = payBreakdown(whatIf, 1);
   const grossNow = Number(whatIf.baseHourlyRate) * 80;
@@ -149,6 +163,9 @@ export default function Plan({ data, save }) {
 
   return (
     <>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <Btn small onClick={downloadReport}>Generate Report</Btn>
+      </div>
       <SectionTitle note={plan.payoffPeriod ? `debt-free ${fmtDate(plan.payoffDate)}` : "beyond model horizon"}>Current Plan (saved)</SectionTitle>
       <Table>
         <thead><tr><Th align="right">Debt-free</Th><Th align="right">Total interest</Th><Th align="right">Savings at payoff</Th></tr></thead>
