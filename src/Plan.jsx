@@ -15,6 +15,7 @@ const GOLD = "#A5760F";
 const fmt = (n) =>
   (n < 0 ? "-$" : "$") + Math.abs(Math.round(n)).toLocaleString();
 const fmtDate = (d) => d.toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+const fmtDateLong = (d) => d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
 function Table({ children }) {
   return (
@@ -73,37 +74,119 @@ function SectionTitle({ children, note }) {
   );
 }
 
+// Picks x-axis ticks that stay readable across both a few-month and a
+// multi-year horizon: one per calendar year once the span is long enough,
+// otherwise evenly-spaced month labels like before.
+function pickTicks(refRows) {
+  if (refRows.length < 2) return { ticks: refRows.map((_, i) => i), yearly: false };
+  const spanDays = (refRows[refRows.length - 1].date - refRows[0].date) / 86400000;
+  if (spanDays > 500) {
+    const seen = new Set();
+    const ticks = [];
+    refRows.forEach((r, i) => {
+      const yr = r.date.getFullYear();
+      if (!seen.has(yr)) { seen.add(yr); ticks.push(i); }
+    });
+    return { ticks, yearly: true };
+  }
+  const step = Math.max(1, Math.ceil(refRows.length / 7));
+  const ticks = [];
+  refRows.forEach((_, i) => { if (i % step === 0) ticks.push(i); });
+  if (ticks[ticks.length - 1] !== refRows.length - 1) ticks.push(refRows.length - 1);
+  return { ticks, yearly: false };
+}
+
+function rowAt(rows, i) {
+  return rows[Math.min(i, rows.length - 1)];
+}
+
+function insightText({ rows, whatIfRows, changed, hover, startingDebt }) {
+  const r = rowAt(rows, hover);
+  const paidOff = r.debt <= 0.5;
+  const pctPaid = startingDebt > 0 ? Math.max(0, Math.min(100, Math.round((1 - r.debt / startingDebt) * 100))) : 0;
+  let text = `As of ${fmtDateLong(r.date)}, the saved plan projects `
+    + (paidOff ? "debt fully paid off" : `${fmt(r.debt)} still owed (${pctPaid}% paid down)`)
+    + `, ${fmt(r.savings)} in savings, and ${fmt(r.interestToDate)} in interest paid so far.`;
+  if (changed && whatIfRows) {
+    const wr = rowAt(whatIfRows, hover);
+    const delta = wr.debt - r.debt;
+    const deltaText = Math.abs(delta) < 1 ? "about the same as" : `${fmt(Math.abs(delta))} ${delta < 0 ? "lower than" : "higher than"}`;
+    text += ` Under the current what-if, debt would be ${fmt(wr.debt)} at this point — ${deltaText} the saved plan.`;
+  }
+  return text;
+}
+
 // Hand-rolled SVG chart, same approach as App.jsx's TrendChart — no chart library.
-function PlanChart({ rows, whatIfRows }) {
-  const W = 700, H = 230, PAD_L = 58, PAD_R = 14, PAD_T = 14, PAD_B = 26;
+function PlanChart({ plan, whatIfPlan, changed, startingDebt }) {
+  const rows = plan.rows;
+  const whatIfRows = changed ? whatIfPlan.rows : null;
+  const W = 700, H = 260, PAD_L = 58, PAD_R = 14, PAD_T = 14, PAD_B = 26;
   const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
   const all = [...rows.map((r) => r.debt), ...(whatIfRows ? whatIfRows.map((r) => r.debt) : [])];
   const max = Math.max(...all, 1);
-  const n = Math.max(rows.length, whatIfRows ? whatIfRows.length : 0);
+  const referenceRows = whatIfRows && whatIfRows.length > rows.length ? whatIfRows : rows;
+  const n = referenceRows.length;
   const x = (i) => PAD_L + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
   const y = (v) => PAD_T + innerH - (v / max) * innerH;
   const path = (arr) => arr.map((r, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(r.debt).toFixed(1)}`).join(" ");
   const gridLines = 4;
-  const step = Math.max(1, Math.ceil(n / 8));
+  const { ticks, yearly } = pickTicks(referenceRows);
+  const [hover, setHover] = useState(null);
+
+  const payoffMarker = (payoffPeriod, color, label) => {
+    if (payoffPeriod === null || payoffPeriod >= n) return null;
+    return (
+      <g>
+        <circle cx={x(payoffPeriod)} cy={y(0)} r="4" fill={color} stroke={BG} strokeWidth="2" />
+        <text x={x(payoffPeriod)} y={y(0) - 8} textAnchor="middle" fontFamily={MONO} fontSize="9.5" fill={color}>{label}</text>
+      </g>
+    );
+  };
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 460, display: "block" }}>
-      {Array.from({ length: gridLines + 1 }).map((_, i) => {
-        const gy = PAD_T + (innerH / gridLines) * i;
-        const val = max - (max / gridLines) * i;
-        return (
-          <g key={i}>
-            <line x1={PAD_L} x2={W - PAD_R} y1={gy} y2={gy} stroke={LINE} />
-            <text x={PAD_L - 6} y={gy + 3} textAnchor="end" fontFamily={MONO} fontSize="10" fill={MUTE}>{fmt(val)}</text>
+    <div style={{ width: "100%", overflowX: "auto" }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 460, display: "block" }} onMouseLeave={() => setHover(null)}>
+        {Array.from({ length: gridLines + 1 }).map((_, i) => {
+          const gy = PAD_T + (innerH / gridLines) * i;
+          const val = max - (max / gridLines) * i;
+          return (
+            <g key={i}>
+              <line x1={PAD_L} x2={W - PAD_R} y1={gy} y2={gy} stroke={LINE} />
+              <text x={PAD_L - 6} y={gy + 3} textAnchor="end" fontFamily={MONO} fontSize="10" fill={MUTE}>{fmt(val)}</text>
+            </g>
+          );
+        })}
+        {ticks.map((i) => (
+          <text key={i} x={x(i)} y={H - 7} textAnchor="middle" fontFamily={MONO} fontSize="9.5" fill={MUTE}>
+            {yearly ? referenceRows[i].date.getFullYear() : fmtDate(referenceRows[i].date)}
+          </text>
+        ))}
+        <path d={path(rows)} fill="none" stroke={TEAL} strokeWidth="2" />
+        {whatIfRows && <path d={path(whatIfRows)} fill="none" stroke={GOLD} strokeWidth="2" strokeDasharray="4 3" />}
+        {payoffMarker(plan.payoffPeriod, TEAL, "debt-free")}
+        {changed && payoffMarker(whatIfPlan.payoffPeriod, GOLD, "debt-free")}
+        {referenceRows.map((_, i) => (
+          <rect key={i} x={x(i) - innerW / Math.max(n - 1, 1) / 2} y={PAD_T}
+            width={innerW / Math.max(n - 1, 1)} height={innerH} fill="transparent"
+            style={{ cursor: "crosshair" }} onMouseEnter={() => setHover(i)} />
+        ))}
+        {hover !== null && (
+          <g>
+            <line x1={x(hover)} x2={x(hover)} y1={PAD_T} y2={PAD_T + innerH} stroke={INK} strokeOpacity="0.2" />
+            <circle cx={x(hover)} cy={y(rowAt(rows, hover).debt)} r="4" fill={TEAL} stroke={BG} strokeWidth="2" />
+            {whatIfRows && <circle cx={x(hover)} cy={y(rowAt(whatIfRows, hover).debt)} r="4" fill={GOLD} stroke={BG} strokeWidth="2" />}
           </g>
-        );
-      })}
-      {rows.map((r, i) => i % step === 0 || i === rows.length - 1 ? (
-        <text key={i} x={x(i)} y={H - 7} textAnchor="middle" fontFamily={MONO} fontSize="9.5" fill={MUTE}>{fmtDate(r.date)}</text>
-      ) : null)}
-      <path d={path(rows)} fill="none" stroke={TEAL} strokeWidth="2" />
-      {whatIfRows && <path d={path(whatIfRows)} fill="none" stroke={GOLD} strokeWidth="2" strokeDasharray="4 3" />}
-    </svg>
+        )}
+      </svg>
+      <div style={{
+        marginTop: 8, padding: "8px 10px", background: HEAD_BG, borderRadius: 4,
+        fontFamily: MONO, fontSize: 11.5, color: INK, lineHeight: 1.5, minHeight: 34,
+      }}>
+        {hover !== null
+          ? insightText({ rows, whatIfRows, changed, hover, startingDebt })
+          : <span style={{ color: MUTE }}>Hover the chart for a plain-English breakdown of debt, savings, and interest paid at that point.</span>}
+      </div>
+    </div>
   );
 }
 
@@ -162,7 +245,7 @@ export default function Plan({ data, save, whatIf, setWhatIf }) {
         </tbody>
       </Table>
       <div style={{ marginTop: 12 }}>
-        <PlanChart rows={plan.rows} whatIfRows={changed ? whatIfPlan.rows : null} />
+        <PlanChart plan={plan} whatIfPlan={whatIfPlan} changed={changed} startingDebt={plan.rows[0].debt} />
       </div>
       <p style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE, margin: "6px 0 0" }}>
         <span style={{ color: TEAL }}>■</span> saved plan

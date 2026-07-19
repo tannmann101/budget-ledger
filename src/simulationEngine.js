@@ -61,9 +61,10 @@ export function simulate({
   let certsToDate = 0;
   let totalInterest = 0;
   let payoffPeriod = null;
+  let savingsAtPayoff = null;
   const cadencePeriods = assumptions.certCadenceDays / PERIOD_DAYS;
 
-  const rows = [{ period: 0, date: startDate, debt: d.reduce((s, x) => s + x.balance, 0), savings: sav }];
+  const rows = [{ period: 0, date: startDate, debt: d.reduce((s, x) => s + x.balance, 0), savings: sav, interestToDate: 0 }];
 
   for (let p = 1; p <= periods; p++) {
     const oncallGross = oncallCycle[(p - 1) % oncallCycle.length];
@@ -126,12 +127,18 @@ export function simulate({
     sav += certToSavings + pool;
 
     const totalDebt = d.reduce((s, x) => s + Math.max(x.balance, 0), 0);
-    if (payoffPeriod === null && totalDebt <= 0.5) payoffPeriod = p;
+    if (payoffPeriod === null && totalDebt <= 0.5) {
+      payoffPeriod = p;
+      savingsAtPayoff = sav;
+    }
 
-    rows.push({ period: p, date: periodToDate(startDate, p), debt: totalDebt, savings: sav });
-    if (payoffPeriod !== null && p >= payoffPeriod + 2) break;
+    rows.push({ period: p, date: periodToDate(startDate, p), debt: totalDebt, savings: sav, interestToDate: totalInterest });
+    // Keep simulating a while past payoff so the chart can show savings
+    // continuing to grow, without letting that extra run change what
+    // "savings at payoff" (captured above, at the moment debt hit zero) means.
+    if (payoffPeriod !== null && p >= payoffPeriod + 26) break;
   }
 
   const payoffDate = payoffPeriod ? periodToDate(startDate, payoffPeriod) : null;
-  return { rows, payoffPeriod, payoffDate, totalInterest, finalSavings: sav, debts: d };
+  return { rows, payoffPeriod, payoffDate, totalInterest, finalSavings: savingsAtPayoff ?? sav, debts: d };
 }
