@@ -1,9 +1,11 @@
-import React, { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef } from "react";
 import { signOut } from "firebase/auth";
 import { auth } from "./firebase";
 import { useCloudLedger, DEFAULT_DATA } from "./useCloudLedger";
 import AuthGate, { useAuthUser, Centered } from "./AuthGate";
 import Plan from "./Plan";
+import Debts from "./Debts";
+import { accrueDebt } from "./debtAccrual";
 
 const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 const SANS = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
@@ -49,9 +51,9 @@ const DEFAULT_CATEGORIES = [
 
 function buildSeedData() {
   const debts = [
-    { id: "debt-wife-cc", name: "Rochelle's Credit Card", balance: 10292.67, rate: 16.15, minPayment: null, totalPaid: 0, totalCharged: 0 },
-    { id: "debt-my-cc", name: "Tanner's Credit Card", balance: 5564.87, rate: 16.49, minPayment: null, totalPaid: 0, totalCharged: 0 },
-    { id: "debt-consolidation", name: "Consolidation Loan", balance: 32208.90, rate: 11.49, minPayment: 673.09, totalPaid: 0, totalCharged: 0 },
+    { id: "debt-wife-cc", name: "Rochelle's Credit Card", balance: 10292.67, rate: 16.15, minPayment: 350, creditLimit: null, lastUpdated: todayStr(), totalPaid: 0, totalCharged: 0 },
+    { id: "debt-my-cc", name: "Tanner's Credit Card", balance: 5564.87, rate: 16.49, minPayment: 700, creditLimit: null, lastUpdated: todayStr(), totalPaid: 0, totalCharged: 0 },
+    { id: "debt-consolidation", name: "Consolidation Loan", balance: 32208.90, rate: 11.49, minPayment: 700, creditLimit: null, lastUpdated: todayStr(), totalPaid: 0, totalCharged: 0 },
   ];
   const debtTotal = debts.reduce((s, d) => s + d.balance, 0);
   const checking = 1576.00;
@@ -384,8 +386,8 @@ function buildSeedData() {
 
 
 function withSnapshot(nextData) {
-  const debtTotal = (nextData.debts || []).reduce((s, d) => s + Number(d.balance || 0), 0);
   const today = todayStr();
+  const debtTotal = (nextData.debts || []).reduce((s, d) => s + accrueDebt(d, today).balance, 0);
   const history = (nextData.history || []).filter((h) => h.date !== today);
   history.push({ date: today, checking: Number(nextData.checking), savings: Number(nextData.savings), debt: debtTotal });
   history.sort((a, b) => a.date.localeCompare(b.date));
@@ -676,10 +678,8 @@ function Ledger({ data, save, userEmail, onSignOut }) {
   const [granularity, setGranularity] = useState("week");
   const [activeKeys, setActiveKeys] = useState(["checking", "savings", "netWorth"]);
   const [newPaycheck, setNewPaycheck] = useState({ date: todayStr(), amount: "", note: "", addToChecking: true });
-  const [newDebt, setNewDebt] = useState({ name: "", balance: "", rate: "", minPayment: "" });
   const [acctAmt, setAcctAmt] = useState({ checking: "", savings: "" });
   const [debtPay, setDebtPay] = useState({});
-  const [debtCorrect, setDebtCorrect] = useState({});
   const [showAllIncome, setShowAllIncome] = useState(false);
   const [showAllTxns, setShowAllTxns] = useState(false);
   const [page, setPage] = useState("ledger");
@@ -690,7 +690,7 @@ function Ledger({ data, save, userEmail, onSignOut }) {
   const monthlySummary = useMemo(() => buildMonthlySummary(data), [data]);
 
   const currentMonth = monthStr();
-  const totalDebt = data.debts.reduce((s, d) => s + Number(d.balance || 0), 0);
+  const totalDebt = data.debts.reduce((s, d) => s + accrueDebt(d, todayStr()).balance, 0);
   const netWorth = Number(data.checking) + Number(data.savings) - totalDebt;
 
   const now = new Date();
@@ -705,7 +705,7 @@ function Ledger({ data, save, userEmail, onSignOut }) {
   const last8Checks = sortedIncome.slice(0, 8);
   const avgPerCheck = last8Checks.length ? last8Checks.reduce((s, p) => s + Number(p.amount || 0), 0) / last8Checks.length : 0;
   const visibleIncome = showAllIncome ? sortedIncome : last8Checks;
-  const last90Spend = data.transactions.filter((t) => (t.type === "expense" || t.type === "bill") && inRange(t.date, 90));
+  const last90Spend = data.transactions.filter((t) => (t.type === "expense" || t.type === "bill" || (t.type === "debt-payment" && t.account === "Checking")) && inRange(t.date, 90));
   const avgMonthlySpend = last90Spend.reduce((s, t) => s + Math.abs(Number(t.amount || 0)), 0) / 3;
   const spendRatio = avgMonthlyIncome > 0 ? avgMonthlySpend / avgMonthlyIncome : null;
 
@@ -760,23 +760,23 @@ function Ledger({ data, save, userEmail, onSignOut }) {
   };
 
   /* ---- debts ---- */
-  const addDebt = () => {
-    if (!newDebt.name || !newDebt.balance) return;
-    const debt = { id: uid(), name: newDebt.name, balance: Number(newDebt.balance), rate: newDebt.rate ? Number(newDebt.rate) : null, minPayment: newDebt.minPayment ? Number(newDebt.minPayment) : null, totalPaid: 0, totalCharged: 0 };
-    save(withSnapshot({ ...data, debts: [...data.debts, debt] }));
-    setNewDebt({ name: "", balance: "", rate: "", minPayment: "" });
-  };
-  const removeDebt = (id) => save(withSnapshot({ ...data, debts: data.debts.filter((d) => d.id !== id) }));
   const payDebt = (id) => {
     const cfg = debtPay[id] || {};
     const amount = Number(cfg.amount);
     const source = cfg.source || "checking";
     if (!amount) return;
+    const today = todayStr();
     let nextChecking = Number(data.checking);
     const nextDebts = data.debts.map((d) => {
       let nd = d;
-      if (d.id === id) nd = { ...nd, balance: Math.max(0, Number(nd.balance) - amount), totalPaid: (nd.totalPaid || 0) + amount };
-      if (source !== "checking" && d.id === source) nd = { ...nd, balance: Number(nd.balance) + amount, totalCharged: (nd.totalCharged || 0) + amount };
+      if (d.id === id) {
+        nd = accrueDebt(nd, today);
+        nd = { ...nd, balance: Math.max(0, nd.balance - amount), totalPaid: (nd.totalPaid || 0) + amount };
+      }
+      if (source !== "checking" && d.id === source) {
+        nd = accrueDebt(nd, today);
+        nd = { ...nd, balance: nd.balance + amount, totalCharged: (nd.totalCharged || 0) + amount };
+      }
       return nd;
     });
     if (source === "checking") nextChecking -= amount;
@@ -788,22 +788,16 @@ function Ledger({ data, save, userEmail, onSignOut }) {
     const cfg = debtPay[id] || {};
     const amount = Number(cfg.amount);
     if (!amount) return;
-    const nextDebts = data.debts.map((d) => d.id === id ? { ...d, balance: Number(d.balance) + amount, totalCharged: (d.totalCharged || 0) + amount } : d);
+    const today = todayStr();
+    const nextDebts = data.debts.map((d) => {
+      if (d.id !== id) return d;
+      const accrued = accrueDebt(d, today);
+      return { ...accrued, balance: accrued.balance + amount, totalCharged: (d.totalCharged || 0) + amount };
+    });
     let next = pushTxn({ ...data, debts: nextDebts }, { type: "debt-charge", description: debtNameById(id), amount, account: debtNameById(id) });
     save(withSnapshot(next));
     setDebtPay({ ...debtPay, [id]: { ...cfg, amount: "" } });
   };
-  const correctDebt = (id) => {
-    const val = debtCorrect[id];
-    if (val === undefined || val === "") return;
-    const newBalance = Number(val);
-    const old = (data.debts.find((d) => d.id === id) || {}).balance || 0;
-    const nextDebts = data.debts.map((d) => d.id === id ? { ...d, balance: newBalance } : d);
-    let next = pushTxn({ ...data, debts: nextDebts }, { type: "correction", description: `${debtNameById(id)} balance corrected`, amount: newBalance - old, account: debtNameById(id) });
-    save(withSnapshot(next));
-    setDebtCorrect({ ...debtCorrect, [id]: "" });
-  };
-
   const toggleSeries = (key) => setActiveKeys((k) => k.includes(key) ? k.filter((x) => x !== key) : [...k, key]);
   const activeSeries = SERIES.filter((s) => activeKeys.includes(s.key));
   const sortedTxns = [...(data.transactions || [])].sort((a, b) => b.date.localeCompare(a.date) || 0);
@@ -880,9 +874,11 @@ function Ledger({ data, save, userEmail, onSignOut }) {
 
         <div style={{ display: "flex", gap: 6, margin: "14px 0 4px" }}>
           <Btn small color={page === "ledger" ? INK : MUTE} onClick={() => setPage("ledger")}>Ledger</Btn>
+          <Btn small color={page === "debts" ? INK : MUTE} onClick={() => setPage("debts")}>Debts</Btn>
           <Btn small color={page === "plan" ? INK : MUTE} onClick={() => setPage("plan")}>Plan</Btn>
         </div>
 
+        {page === "debts" && <Debts data={data} save={save} />}
         {page === "plan" && <Plan data={data} save={save} />}
 
         {page === "ledger" && (
@@ -963,51 +959,23 @@ function Ledger({ data, save, userEmail, onSignOut }) {
         </Table>
 
         {/* Debts */}
-        <SectionTitle note={`${fmt(totalDebt)} total owed`}>Debt Accounts</SectionTitle>
+        <SectionTitle note={`${fmt(totalDebt)} total owed · manage accounts on the Debts page`}>Debt Payments</SectionTitle>
         <Table>
-          <thead><tr>
-            <Th>Account</Th><Th align="right">Balance</Th><Th align="right">Rate</Th><Th align="right">Min Pmt</Th>
-            <Th align="right">Paid to it</Th><Th align="right">Spent by it</Th><Th> </Th>
-          </tr></thead>
+          <thead><tr><Th>Account</Th><Th align="right">Balance</Th><Th align="right">Amount</Th><Th> </Th><Th> </Th></tr></thead>
           <tbody>
             {data.debts.map((d) => {
               const cfg = debtPay[d.id] || { amount: "", source: "checking" };
               const opts = sourceOptionsBase.filter((o) => o.id !== d.id);
               return (
-                <React.Fragment key={d.id}>
-                  <tr>
-                    <Td>{d.name}</Td>
-                    <Td align="right" mono style={{ color: BRICK }}>{fmt(Number(d.balance))}</Td>
-                    <Td align="right" mono muted>{d.rate ? `${d.rate}%` : "—"}</Td>
-                    <Td align="right" mono muted>{d.minPayment ? fmt(d.minPayment) : "—"}</Td>
-                    <Td align="right" mono>{fmt(d.totalPaid || 0)}</Td>
-                    <Td align="right" mono>{fmt(d.totalCharged || 0)}</Td>
-                    <Td align="right"><Btn small color={BRICK} onClick={() => removeDebt(d.id)}>del</Btn></Td>
-                  </tr>
-                  <tr>
-                    <Td colSpan={7} bg={HEAD_BG}>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                        <Input value={cfg.amount} onChange={(v) => setDebtPay({ ...debtPay, [d.id]: { ...cfg, amount: v } })} placeholder="Amount" type="number" width={90} />
-                        <Select value={cfg.source} onChange={(v) => setDebtPay({ ...debtPay, [d.id]: { ...cfg, source: v } })} options={opts} width={170} />
-                        <Btn small onClick={() => payDebt(d.id)}>Payment −</Btn>
-                        <Btn small color={BRICK} onClick={() => chargeDebt(d.id)}>Charge +</Btn>
-                        <span style={{ color: LINE }}>|</span>
-                        <Input value={debtCorrect[d.id] || ""} onChange={(v) => setDebtCorrect({ ...debtCorrect, [d.id]: v })} placeholder="Correct balance to…" type="number" width={130} onEnter={() => correctDebt(d.id)} />
-                        <Btn small color={GOLD} onClick={() => correctDebt(d.id)}>set exact</Btn>
-                      </div>
-                    </Td>
-                  </tr>
-                </React.Fragment>
+                <tr key={d.id}>
+                  <Td>{d.name}</Td>
+                  <Td align="right" mono style={{ color: BRICK }}>{fmt(accrueDebt(d, todayStr()).balance)}</Td>
+                  <Td align="right"><Input value={cfg.amount} onChange={(v) => setDebtPay({ ...debtPay, [d.id]: { ...cfg, amount: v } })} placeholder="0.00" type="number" width={90} /></Td>
+                  <Td><Select value={cfg.source} onChange={(v) => setDebtPay({ ...debtPay, [d.id]: { ...cfg, source: v } })} options={opts} width={150} /></Td>
+                  <Td align="right"><Btn small onClick={() => payDebt(d.id)}>Payment −</Btn> <Btn small color={BRICK} onClick={() => chargeDebt(d.id)}>Charge +</Btn></Td>
+                </tr>
               );
             })}
-            <tr>
-              <Td><Input value={newDebt.name} onChange={(v) => setNewDebt({ ...newDebt, name: v })} placeholder="New debt name" width={150} /></Td>
-              <Td align="right"><Input value={newDebt.balance} onChange={(v) => setNewDebt({ ...newDebt, balance: v })} placeholder="Balance" type="number" width={90} /></Td>
-              <Td align="right"><Input value={newDebt.rate} onChange={(v) => setNewDebt({ ...newDebt, rate: v })} placeholder="Rate %" type="number" width={60} /></Td>
-              <Td align="right"><Input value={newDebt.minPayment} onChange={(v) => setNewDebt({ ...newDebt, minPayment: v })} placeholder="Min pmt" type="number" width={70} /></Td>
-              <Td colSpan={2}></Td>
-              <Td align="right"><Btn small onClick={addDebt}>add</Btn></Td>
-            </tr>
           </tbody>
         </Table>
 
