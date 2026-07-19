@@ -1,8 +1,5 @@
 import { useState, useMemo } from "react";
 import { simulate, DEFAULT_ASSUMPTIONS, payBreakdown } from "./simulationEngine";
-import { buildReport } from "./report";
-
-const todayStr = () => new Date().toISOString().slice(0, 10);
 
 const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 const SANS = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
@@ -110,9 +107,8 @@ function PlanChart({ rows, whatIfRows }) {
   );
 }
 
-export default function Plan({ data, save }) {
+export default function Plan({ data, save, whatIf, setWhatIf }) {
   const assumptions = { ...DEFAULT_ASSUMPTIONS, ...(data.assumptions || {}) };
-  const [whatIf, setWhatIf] = useState(assumptions);
 
   const startDate = useMemo(() => new Date(), []);
 
@@ -134,17 +130,8 @@ export default function Plan({ data, save }) {
   };
   const resetWhatIf = () => setWhatIf(assumptions);
 
-  const downloadReport = () => {
-    const md = buildReport({ data, plan, whatIfPlan, changed, assumptions, whatIf });
-    const blob = new Blob([md], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `household-ledger-report-${todayStr()}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
+  const [payView, setPayView] = useState("period");
+  const payScale = payView === "month" ? 26 / 12 : 1;
   const payNow = payBreakdown(whatIf, 0);
   const payAfterNextCert = payBreakdown(whatIf, 1);
   const grossNow = Number(whatIf.baseHourlyRate) * 80;
@@ -163,9 +150,6 @@ export default function Plan({ data, save }) {
 
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <Btn small onClick={downloadReport}>Generate Report</Btn>
-      </div>
       <SectionTitle note={plan.payoffPeriod ? `debt-free ${fmtDate(plan.payoffDate)}` : "beyond model horizon"}>Current Plan (saved)</SectionTitle>
       <Table>
         <thead><tr><Th align="right">Debt-free</Th><Th align="right">Total interest</Th><Th align="right">Savings at payoff</Th></tr></thead>
@@ -203,34 +187,39 @@ export default function Plan({ data, save }) {
         {field("allocationSplit", "Split to debt (0-1)", 80)}
       </div>
 
-      <SectionTitle note="how net pay per period is actually calculated — no black boxing">Pay Calculation</SectionTitle>
+      <SectionTitle note="how net pay is actually calculated — no black boxing">Pay Calculation</SectionTitle>
+      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+        <Btn small color={payView === "period" ? INK : MUTE} onClick={() => setPayView("period")}>Per Period</Btn>
+        <Btn small color={payView === "month" ? INK : MUTE} onClick={() => setPayView("month")}>Per Month</Btn>
+      </div>
       <Table>
         <thead><tr>
-          <Th> </Th><Th align="right">Gross (rate × 80hr)</Th><Th align="right">Take-home rate</Th>
+          <Th> </Th><Th align="right">Gross</Th><Th align="right">Take-home rate</Th>
           <Th align="right">Net baseline</Th><Th align="right">+ OT</Th><Th align="right">+ Cert raise</Th><Th align="right">= Total</Th>
         </tr></thead>
         <tbody>
           <tr>
             <Td muted>Now</Td>
-            <Td align="right" mono muted>{fmt(grossNow)}</Td>
+            <Td align="right" mono muted>{fmt(grossNow * payScale)}</Td>
             <Td align="right" mono muted>{Math.round(Number(whatIf.takeHomeRate) * 100)}%</Td>
-            <Td align="right" mono>{fmt(payNow.baseline)}</Td>
-            <Td align="right" mono>{fmt(payNow.ot)}</Td>
-            <Td align="right" mono>{fmt(payNow.certRaise)}</Td>
-            <Td align="right" mono style={{ color: TEAL }}>{fmt(payNow.total)}</Td>
+            <Td align="right" mono>{fmt(payNow.baseline * payScale)}</Td>
+            <Td align="right" mono>{fmt(payNow.ot * payScale)}</Td>
+            <Td align="right" mono>{fmt(payNow.certRaise * payScale)}</Td>
+            <Td align="right" mono style={{ color: TEAL }}>{fmt(payNow.total * payScale)}</Td>
           </tr>
           <tr>
             <Td muted>After next cert</Td>
-            <Td align="right" mono muted>{fmt(grossNow)}</Td>
+            <Td align="right" mono muted>{fmt(grossNow * payScale)}</Td>
             <Td align="right" mono muted>{Math.round(Number(whatIf.takeHomeRate) * 100)}%</Td>
-            <Td align="right" mono>{fmt(payAfterNextCert.baseline)}</Td>
-            <Td align="right" mono>{fmt(payAfterNextCert.ot)}</Td>
-            <Td align="right" mono>{fmt(payAfterNextCert.certRaise)}</Td>
-            <Td align="right" mono style={{ color: TEAL }}>{fmt(payAfterNextCert.total)}</Td>
+            <Td align="right" mono>{fmt(payAfterNextCert.baseline * payScale)}</Td>
+            <Td align="right" mono>{fmt(payAfterNextCert.ot * payScale)}</Td>
+            <Td align="right" mono>{fmt(payAfterNextCert.certRaise * payScale)}</Td>
+            <Td align="right" mono style={{ color: TEAL }}>{fmt(payAfterNextCert.total * payScale)}</Td>
           </tr>
         </tbody>
       </Table>
       <p style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE, margin: "6px 0 14px" }}>
+        Gross = base rate × 80 hrs per pay period{payView === "month" ? ", scaled to a monthly figure (× 26 pay periods ÷ 12 months)" : ""}.
         Doesn't include on-call pay, which cycles per period (250/250/125/250/125, a placeholder) rather than
         being a flat rate. Every number above comes from the What-if fields — change one and this recalculates.
       </p>
@@ -254,6 +243,8 @@ export default function Plan({ data, save }) {
         "Save as plan" replaces Current Plan (saved) above with this what-if — that becomes the new committed
         baseline everyone sees. This projection models future interest on a bi-weekly schedule; it doesn't
         touch your real debt balances, which accrue interest daily on their own — see the Debts page.
+        This what-if stays in place if you switch pages — use the "report" button on the Ledger page to export
+        a full snapshot including it.
       </p>
     </>
   );

@@ -6,6 +6,8 @@ import AuthGate, { useAuthUser, Centered } from "./AuthGate";
 import Plan from "./Plan";
 import Debts from "./Debts";
 import { accrueDebt } from "./debtAccrual";
+import { DEFAULT_ASSUMPTIONS } from "./simulationEngine";
+import { buildReport } from "./report";
 
 const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 const SANS = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
@@ -685,6 +687,7 @@ function Ledger({ data, save, userEmail, onSignOut }) {
   const [page, setPage] = useState("ledger");
   const [importMsg, setImportMsg] = useState("");
   const importInputRef = useRef(null);
+  const [whatIf, setWhatIf] = useState(() => ({ ...DEFAULT_ASSUMPTIONS, ...(data.assumptions || {}) }));
 
   const chartData = useMemo(() => buildTrendPoints(data.history, granularity), [data, granularity]);
   const monthlySummary = useMemo(() => buildMonthlySummary(data), [data]);
@@ -818,6 +821,17 @@ function Ledger({ data, save, userEmail, onSignOut }) {
     URL.revokeObjectURL(url);
     setImportMsg("Exported as a backup snapshot.");
   };
+  const downloadReport = () => {
+    const md = buildReport({ data, whatIf });
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `household-ledger-report-${todayStr()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setImportMsg("Report generated — check your downloads.");
+  };
   const handleImportFile = (file) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -855,6 +869,7 @@ function Ledger({ data, save, userEmail, onSignOut }) {
             <div style={{ display: "flex", gap: 6 }}>
               <Btn small onClick={exportData}>export</Btn>
               <Btn small onClick={() => importInputRef.current?.click()}>import</Btn>
+              <Btn small onClick={downloadReport}>report</Btn>
               <input
                 ref={importInputRef}
                 type="file"
@@ -879,7 +894,7 @@ function Ledger({ data, save, userEmail, onSignOut }) {
         </div>
 
         {page === "debts" && <Debts data={data} save={save} />}
-        {page === "plan" && <Plan data={data} save={save} />}
+        {page === "plan" && <Plan data={data} save={save} whatIf={whatIf} setWhatIf={setWhatIf} />}
 
         {page === "ledger" && (
         <>

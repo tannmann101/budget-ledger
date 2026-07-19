@@ -5,6 +5,7 @@
 // distinct What-if Scenario projection alongside it.
 
 import { accrueDebt } from "./debtAccrual";
+import { simulate, DEFAULT_ASSUMPTIONS } from "./simulationEngine";
 
 const fmt = (n) =>
   (n < 0 ? "-$" : "$") + Math.abs(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -37,7 +38,27 @@ function assumptionLines(assumptions) {
   return ASSUMPTION_FIELDS.map(([key, label]) => `- ${label}: ${assumptions[key]}`);
 }
 
-export function buildReport({ data, plan, whatIfPlan, changed, assumptions, whatIf }) {
+const METHODOLOGY = [
+  "Each pay period (bi-weekly, ~14 days) is simulated forward from today:",
+  "",
+  "- **Net pay** = (base hourly rate × 80 hrs × take-home rate) + (OT hours × OT rate) + on-call pay (a placeholder cycle) + accumulated cert raises. Each cert earned, at the configured cadence, permanently adds (cert raise/mo × 12/26) to every future period's net pay — raises compound as more certs are earned.",
+  "- **Committed spend** = fixed bills (a flat monthly figure, prorated per period) + each debt's real minimum payment. Net pay minus committed spend is the surplus available that period; the extra-debt-payment lever, if set, adds to it directly.",
+  "- **Debt payoff** uses the avalanche method: the highest-rate debt gets 100% of the surplus (plus any cert-bonus share and minimum payments freed up from debts that finish paying off) each period, until it's paid off, then the next-highest-rate debt takes over. Every debt accrues interest each period at its own annual rate ÷ 26, applied to the balance before that period's payment.",
+  "- **Cert bonuses** (one-time, on the same cadence as the raise) split between extra debt payment and savings per the allocation split.",
+  "- Once all debt is paid off, all further surplus flows into savings instead.",
+  "",
+  "This is a simplified model of a real, fluctuating budget — actual income and expenses vary period to period, so treat the debt-free date and totals below as directional, not exact. The inputs listed below each projection are what's actually driving it; changing a rate, a raise amount, or a bill figure and re-running the simulation is how to test a different assumption against this same methodology.",
+];
+
+export function buildReport({ data, whatIf }) {
+  const assumptions = { ...DEFAULT_ASSUMPTIONS, ...(data.assumptions || {}) };
+  const startDate = new Date();
+  const plan = simulate({ debts: data.debts, savings: Number(data.savings), assumptions, periods: 260, startDate });
+  const changed = whatIf && JSON.stringify(whatIf) !== JSON.stringify(assumptions);
+  const whatIfPlan = changed
+    ? simulate({ debts: data.debts, savings: Number(data.savings), assumptions: whatIf, periods: 260, startDate })
+    : null;
+
   const today = todayStr();
   const lines = [];
   const push = (...args) => lines.push(...(args.length ? args : [""]));
@@ -101,6 +122,10 @@ export function buildReport({ data, plan, whatIfPlan, changed, assumptions, what
       push(`| ${name} | ${fmt(total)} |`);
     }
   }
+  push();
+
+  push("## How These Projections Are Calculated");
+  push(...METHODOLOGY);
   push();
 
   push("## Set Plan (saved)");
