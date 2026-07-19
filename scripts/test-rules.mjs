@@ -30,9 +30,11 @@ const check = (label, ok) => {
 };
 
 // The minimal shape isValidLedger() in firestore.rules requires on every
-// create/update -- mirrors DEFAULT_DATA in useCloudLedger.js.
+// create/update -- mirrors DEFAULT_MAIN in useCloudLedger.js. income/
+// transactions/expenses/history no longer live here -- they're in their own
+// subcollections, tested separately below.
 const validLedger = (overrides = {}) => ({
-  checking: 0, savings: 0, income: [], debts: [], bills: [], categories: [], expenses: [], transactions: [], history: [],
+  checking: 0, savings: 0, debts: [], bills: [], categories: [],
   ...overrides,
 });
 
@@ -139,7 +141,53 @@ try {
   check("deleting the shared ledger doc is rejected", false);
 }
 
-// 9. Live sync: a second allowed session should see the first session's write via onSnapshot
+// 9. Subcollections: allowed accounts can add/read/delete items; wrong-typed
+// items and non-allow-listed accounts are rejected -- same auth model as the
+// main doc, plus light per-collection type validation.
+const validTxn = { date: "2026-01-01", type: "expense", description: "Coffee", amount: 4.5, account: "Checking" };
+const validIncome = { date: "2026-01-01", amount: 1500, note: "" };
+const validExpense = { categoryId: "cat-coffee", amount: 4.5, month: "2026-01" };
+const validHistory = { date: "2026-01-01", checking: 100, savings: 200, debt: 300 };
+
+try {
+  await assertSucceeds(setDoc(doc(tannerDb, "ledger/shared/transactions/t1"), validTxn));
+  const snap = await assertSucceeds(getDoc(doc(tannerDb, "ledger/shared/transactions/t1")));
+  check("allowed account can write and read a transaction item", snap.data()?.amount === 4.5);
+} catch (e) {
+  check("allowed account can write and read a transaction item", false);
+  console.error(e.message);
+}
+try {
+  await assertSucceeds(setDoc(doc(tannerDb, "ledger/shared/income/i1"), validIncome));
+  await assertSucceeds(setDoc(doc(tannerDb, "ledger/shared/expenses/e1"), validExpense));
+  await assertSucceeds(setDoc(doc(tannerDb, "ledger/shared/history/2026-01-01"), validHistory));
+  check("allowed account can write income/expenses/history items", true);
+} catch (e) {
+  check("allowed account can write income/expenses/history items", false);
+  console.error(e.message);
+}
+try {
+  await assertFails(setDoc(doc(tannerDb, "ledger/shared/transactions/t2"), { ...validTxn, amount: "not-a-number" }));
+  check("wrong-typed transaction item is rejected", true);
+} catch (e) {
+  check("wrong-typed transaction item is rejected", false);
+}
+try {
+  await assertFails(setDoc(doc(strangerDb, "ledger/shared/transactions/t3"), validTxn));
+  check("non-allow-listed account is rejected on a subcollection item", true);
+} catch (e) {
+  check("non-allow-listed account is rejected on a subcollection item", false);
+}
+try {
+  await assertSucceeds(deleteDoc(doc(tannerDb, "ledger/shared/transactions/t1")));
+  const snap = await getDoc(doc(rochelleDb, "ledger/shared/transactions/t1"));
+  check("allowed account can delete a subcollection item", !snap.exists());
+} catch (e) {
+  check("allowed account can delete a subcollection item", false);
+  console.error(e.message);
+}
+
+// 10. Live sync: a second allowed session should see the first session's write via onSnapshot
 const secondSessionCtx = testEnv.authenticatedContext("uid-tanner-2", { email: "tannerwesgardner@gmail.com" });
 const secondDb = secondSessionCtx.firestore();
 
