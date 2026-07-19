@@ -1,5 +1,7 @@
 import { useState, useMemo } from "react";
-import { simulate, DEFAULT_ASSUMPTIONS } from "./simulationEngine";
+import { simulate, DEFAULT_ASSUMPTIONS, PERIOD_DAYS, payBreakdown } from "./simulationEngine";
+
+const uid = () => Math.random().toString(36).slice(2, 10);
 
 const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 const SANS = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
@@ -49,11 +51,12 @@ function Btn({ onClick, children, color = TEAL, small }) {
     }}>{children}</button>
   );
 }
-function Input({ value, onChange, width, type = "text" }) {
+function Input({ value, onChange, placeholder, width, type = "text" }) {
   return (
     <input
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
       type={type}
       inputMode={type === "number" ? "decimal" : undefined}
       style={{
@@ -70,6 +73,15 @@ function SectionTitle({ children, note }) {
       {note && <span style={{ fontFamily: MONO, fontSize: 11.5, color: MUTE }}>{note}</span>}
     </div>
   );
+}
+
+function toEngineOneOffs(list, startDate) {
+  return (list || []).map((e) => ({
+    ...e,
+    // simulate()'s loop starts at period 1 (period 0 is just the seed row), so a
+    // one-time entry dated at/before startDate must still land on period 1 to fire.
+    startPeriod: Math.max(1, Math.round((new Date(e.date) - startDate) / (PERIOD_DAYS * 86400000))),
+  }));
 }
 
 // Hand-rolled SVG chart, same approach as App.jsx's TrendChart — no chart library.
@@ -109,16 +121,15 @@ function PlanChart({ rows, whatIfRows }) {
 export default function Plan({ data, save }) {
   const assumptions = { ...DEFAULT_ASSUMPTIONS, ...(data.assumptions || {}) };
   const [whatIf, setWhatIf] = useState(assumptions);
-  const [editing, setEditing] = useState(false);
 
   const startDate = useMemo(() => new Date(), []);
 
   const plan = useMemo(
-    () => simulate({ debts: data.debts, savings: Number(data.savings), assumptions, periods: 100, startDate }),
+    () => simulate({ debts: data.debts, savings: Number(data.savings), assumptions, oneOffs: toEngineOneOffs(assumptions.oneOffs, startDate), periods: 100, startDate }),
     [data.debts, data.savings, assumptions, startDate]
   );
   const whatIfPlan = useMemo(
-    () => simulate({ debts: data.debts, savings: Number(data.savings), assumptions: whatIf, periods: 100, startDate }),
+    () => simulate({ debts: data.debts, savings: Number(data.savings), assumptions: whatIf, oneOffs: toEngineOneOffs(whatIf.oneOffs, startDate), periods: 100, startDate }),
     [data.debts, data.savings, whatIf, startDate]
   );
 
@@ -130,6 +141,18 @@ export default function Plan({ data, save }) {
     save({ ...data, assumptions: whatIf });
   };
   const resetWhatIf = () => setWhatIf(assumptions);
+
+  const [newBonus, setNewBonus] = useState({ label: "", amount: "", date: startDate.toISOString().slice(0, 10), recurring: false });
+  const bonuses = whatIf.oneOffs || [];
+  const addBonus = () => {
+    if (!newBonus.label || !newBonus.amount) return;
+    setWhatIf({ ...whatIf, oneOffs: [...bonuses, { id: uid(), label: newBonus.label, amount: Number(newBonus.amount), date: newBonus.date, recurring: newBonus.recurring }] });
+    setNewBonus({ label: "", amount: "", date: startDate.toISOString().slice(0, 10), recurring: false });
+  };
+  const removeBonus = (id) => setWhatIf({ ...whatIf, oneOffs: bonuses.filter((b) => b.id !== id) });
+
+  const payNow = payBreakdown(whatIf, 0);
+  const payAfterNextCert = payBreakdown(whatIf, 1);
 
   const field = (key, label, width = 90) => (
     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -167,10 +190,69 @@ export default function Plan({ data, save }) {
       <SectionTitle note="adjust and preview before saving">What-if</SectionTitle>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginBottom: 14 }}>
         {field("certCadenceDays", "Cert cadence (days)")}
+        {field("certRaiseMonthly", "Cert raise ($/mo)", 90)}
+        {field("certBonusAmount", "Cert bonus ($)", 90)}
         {field("fixedBillsMonthly", "Fixed bills ($/mo)", 100)}
+        {field("extraDebtPaymentPerPeriod", "Extra debt pmt ($/period)", 100)}
         {field("allocationSplit", "Split to debt (0-1)", 80)}
         {field("otHoursPerPeriod", "OT hrs/pay period", 80)}
       </div>
+
+      <SectionTitle note="one-time or recurring cash events — e.g. a Skillable lab spot bonus">Bonuses</SectionTitle>
+      <Table>
+        <thead><tr><Th>Label</Th><Th align="right">Amount</Th><Th>Date</Th><Th>Cadence</Th><Th> </Th></tr></thead>
+        <tbody>
+          {bonuses.map((b) => (
+            <tr key={b.id}>
+              <Td>{b.label}</Td>
+              <Td align="right" mono>{fmt(b.amount)}</Td>
+              <Td mono muted>{b.date}</Td>
+              <Td muted>{b.recurring ? "recurring" : "once"}</Td>
+              <Td align="right"><Btn small color={BRICK} onClick={() => removeBonus(b.id)}>del</Btn></Td>
+            </tr>
+          ))}
+          <tr>
+            <Td><Input value={newBonus.label} onChange={(v) => setNewBonus({ ...newBonus, label: v })} placeholder="Skillable lab spot" width={150} /></Td>
+            <Td align="right"><Input value={newBonus.amount} onChange={(v) => setNewBonus({ ...newBonus, amount: v })} placeholder="0.00" type="number" width={80} /></Td>
+            <Td><Input value={newBonus.date} onChange={(v) => setNewBonus({ ...newBonus, date: v })} placeholder="YYYY-MM-DD" width={110} /></Td>
+            <Td>
+              <Btn small color={newBonus.recurring ? GOLD : MUTE} onClick={() => setNewBonus({ ...newBonus, recurring: !newBonus.recurring })}>
+                {newBonus.recurring ? "recurring" : "once"}
+              </Btn>
+            </Td>
+            <Td align="right"><Btn small onClick={addBonus}>add</Btn></Td>
+          </tr>
+        </tbody>
+      </Table>
+      <p style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE, margin: "6px 0 14px" }}>
+        "Recurring" applies every pay period from that date forward, not just once. Bonus money goes toward
+        debt payoff first — same as cert bonuses — until debt hits zero, then it flows to savings.
+      </p>
+
+      <SectionTitle note="per pay period, at today's cert cadence">Pay Breakdown</SectionTitle>
+      <Table>
+        <thead><tr><Th> </Th><Th align="right">Baseline</Th><Th align="right">OT</Th><Th align="right">Cert raise</Th><Th align="right">Total</Th></tr></thead>
+        <tbody>
+          <tr>
+            <Td muted>Now</Td>
+            <Td align="right" mono>{fmt(payNow.baseline)}</Td>
+            <Td align="right" mono>{fmt(payNow.ot)}</Td>
+            <Td align="right" mono>{fmt(payNow.certRaise)}</Td>
+            <Td align="right" mono style={{ color: TEAL }}>{fmt(payNow.total)}</Td>
+          </tr>
+          <tr>
+            <Td muted>After next cert</Td>
+            <Td align="right" mono>{fmt(payAfterNextCert.baseline)}</Td>
+            <Td align="right" mono>{fmt(payAfterNextCert.ot)}</Td>
+            <Td align="right" mono>{fmt(payAfterNextCert.certRaise)}</Td>
+            <Td align="right" mono style={{ color: TEAL }}>{fmt(payAfterNextCert.total)}</Td>
+          </tr>
+        </tbody>
+      </Table>
+      <p style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE, margin: "6px 0 14px" }}>
+        Doesn't include on-call pay, which cycles per period rather than being a flat rate.
+      </p>
+
       {changed && (
         <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 14, fontFamily: MONO, fontSize: 12.5 }}>
           <span style={{ color: MUTE }}>vs. saved plan:</span>
