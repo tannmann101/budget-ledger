@@ -143,7 +143,7 @@ function PlanChart({ plan, whatIfPlan, changed, startingDebt, assumptions, whatI
   );
 }
 
-export default function Plan({ data, save, whatIf, setWhatIf }) {
+export default function Plan({ data, commit, whatIf, setWhatIf }) {
   const assumptions = { ...DEFAULT_ASSUMPTIONS, ...(data.assumptions || {}) };
 
   const startDate = useMemo(() => new Date(), []);
@@ -162,7 +162,7 @@ export default function Plan({ data, save, whatIf, setWhatIf }) {
   const interestDelta = whatIfPlan.totalInterest - plan.totalInterest;
 
   const saveAssumptions = () => {
-    save({ ...data, assumptions: whatIf });
+    commit({ main: { assumptions: whatIf } });
   };
   const resetWhatIf = () => setWhatIf(assumptions);
 

@@ -9,8 +9,60 @@ service cloud.firestore {
         ];
     }
 
+    // Guards against a client bug (or a stray manual edit) corrupting the
+    // shared document everyone reads and writes -- checks each core field's
+    // *type* when required, not every nested item's shape, so the schema can
+    // still evolve (new fields, renamed assumption keys) without a rules
+    // deploy blocking legitimate writes. income/transactions/expenses/history
+    // used to live here too but moved into their own subcollections below
+    // (one small document per item, instead of ever-growing arrays inside
+    // this single document) -- a legacy document written before that split
+    // may still briefly have those fields as arrays; reads aren't validated,
+    // so the app's self-migration on load can still see and move them.
+    function isValidLedger(d) {
+      return d.checking is number &&
+        d.savings is number &&
+        d.debts is list &&
+        d.bills is list &&
+        d.categories is list &&
+        (!('assumptions' in d) || d.assumptions is map) &&
+        (!('_rev' in d) || d._rev is number);
+    }
+
+    function isValidHistoryItem(d) {
+      return d.date is string && d.checking is number && d.savings is number && d.debt is number;
+    }
+    function isValidIncomeItem(d) {
+      return d.date is string && d.amount is number;
+    }
+    function isValidExpenseItem(d) {
+      return d.categoryId is string && d.amount is number && d.month is string;
+    }
+    function isValidTransactionItem(d) {
+      return d.date is string && d.type is string && d.amount is number;
+    }
+
     match /ledger/{docId} {
-      allow read, write: if isAllowed();
+      allow read: if isAllowed();
+      allow create, update: if isAllowed() && isValidLedger(request.resource.data);
+      allow delete: if false;
+
+      match /history/{itemId} {
+        allow read, delete: if isAllowed();
+        allow create, update: if isAllowed() && isValidHistoryItem(request.resource.data);
+      }
+      match /income/{itemId} {
+        allow read, delete: if isAllowed();
+        allow create, update: if isAllowed() && isValidIncomeItem(request.resource.data);
+      }
+      match /expenses/{itemId} {
+        allow read, delete: if isAllowed();
+        allow create, update: if isAllowed() && isValidExpenseItem(request.resource.data);
+      }
+      match /transactions/{itemId} {
+        allow read, delete: if isAllowed();
+        allow create, update: if isAllowed() && isValidTransactionItem(request.resource.data);
+      }
     }
   }
 }

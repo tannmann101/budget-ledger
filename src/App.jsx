@@ -1,7 +1,7 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo } from "react";
 import { signOut } from "firebase/auth";
 import { auth } from "./firebase";
-import { useCloudLedger, DEFAULT_DATA } from "./useCloudLedger";
+import { useCloudLedger } from "./useCloudLedger";
 import AuthGate, { useAuthUser, Centered } from "./AuthGate";
 import Plan from "./Plan";
 import Debts from "./Debts";
@@ -14,7 +14,6 @@ import { GlobalStyle, Table, Th, Td, SectionTitle, Btn, Input, Select, TabBar, C
 const fmt = (n) =>
   (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtShort = (n) => (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
-const uid = () => Math.random().toString(36).slice(2, 10);
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const monthStr = (d = new Date()) => d.toISOString().slice(0, 7);
 const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
@@ -377,18 +376,13 @@ function buildSeedData() {
 }
 
 
-function withSnapshot(nextData) {
+// One history doc per day (upserted by date), so every balance-affecting
+// mutation hands this to commit()'s `add.history` to keep the Trends chart
+// current -- Firestore naturally dedupes same-day entries by doc ID.
+function historyEntry(nextData) {
   const today = todayStr();
   const debtTotal = (nextData.debts || []).reduce((s, d) => s + accrueDebt(d, today).balance, 0);
-  const history = (nextData.history || []).filter((h) => h.date !== today);
-  history.push({ date: today, checking: Number(nextData.checking), savings: Number(nextData.savings), debt: debtTotal });
-  history.sort((a, b) => a.date.localeCompare(b.date));
-  return { ...nextData, history };
-}
-
-function pushTxn(nextData, txn) {
-  const transactions = [...(nextData.transactions || []), { id: uid(), date: todayStr(), ...txn }];
-  return { ...nextData, transactions };
+  return { date: today, checking: Number(nextData.checking), savings: Number(nextData.savings), debt: debtTotal };
 }
 
 /* ---------- shared table primitives now live in ./ui ---------- */
@@ -575,12 +569,15 @@ function TrendChart({ data, activeSeries }) {
 
 export default function App() {
   const user = useAuthUser();
-  const [data, save, status, saveStatus] = useCloudLedger(!!user);
+  const { data, status, saveStatus, commit, removeItem, replaceAll } = useCloudLedger(!!user);
 
   return (
     <AuthGate user={user} forbidden={status === "forbidden"}>
       {status === "loading" && (
         <Centered bare><span style={{ fontFamily: MONO, color: MUTE, fontSize: 13 }}>loading…</span></Centered>
+      )}
+      {status === "migrating" && (
+        <Centered bare><span style={{ fontFamily: MONO, color: MUTE, fontSize: 13 }}>upgrading your ledger's storage format…</span></Centered>
       )}
       {status === "error" && (
         <Centered bare><span style={{ fontFamily: MONO, color: BRICK, fontSize: 13 }}>Couldn't reach the ledger. Check your connection and reload.</span></Centered>
@@ -588,17 +585,17 @@ export default function App() {
       {status === "ready" && data === null && (
         <Centered>
           <p style={{ fontFamily: MONO, fontSize: 12.5, color: MUTE, margin: "0 0 18px" }}>No shared ledger exists yet.</p>
-          <Btn primary onClick={() => save(buildSeedData())}>Create ledger with starting data</Btn>
+          <Btn primary onClick={() => replaceAll(buildSeedData())}>Create ledger with starting data</Btn>
         </Centered>
       )}
       {status === "ready" && data !== null && (
-        <Ledger data={data} save={save} saveStatus={saveStatus} userEmail={user?.email} onSignOut={() => signOut(auth)} />
+        <Ledger data={data} commit={commit} removeItem={removeItem} replaceAll={replaceAll} saveStatus={saveStatus} userEmail={user?.email} onSignOut={() => signOut(auth)} />
       )}
     </AuthGate>
   );
 }
 
-function Ledger({ data, save, saveStatus, userEmail, onSignOut }) {
+function Ledger({ data, commit, removeItem, replaceAll, saveStatus, userEmail, onSignOut }) {
   const [spendForm, setSpendForm] = useState({ categoryId: "", amount: "" });
   const [transferAmt, setTransferAmt] = useState("");
   const [granularity, setGranularity] = useState("week");
@@ -609,8 +606,7 @@ function Ledger({ data, save, saveStatus, userEmail, onSignOut }) {
   const [showAllIncome, setShowAllIncome] = useState(false);
   const [showAllTxns, setShowAllTxns] = useState(false);
   const [page, setPage] = useState("ledger");
-  const [importMsg, setImportMsg] = useState("");
-  const importInputRef = useRef(null);
+  const [reportMsg, setReportMsg] = useState("");
   const [whatIf, setWhatIf] = useState(() => ({ ...DEFAULT_ASSUMPTIONS, ...(data.assumptions || {}) }));
 
   const chartData = useMemo(() => buildTrendPoints(data.history, granularity), [data, granularity]);
@@ -644,11 +640,15 @@ function Ledger({ data, save, saveStatus, userEmail, onSignOut }) {
     const n = Number(acctAmt[which]);
     if (!n) return;
     const delta = sign * n;
-    let next = which === "checking"
-      ? { ...data, checking: Number(data.checking) + delta }
-      : { ...data, savings: Number(data.savings) + delta };
-    next = pushTxn(next, { type: sign > 0 ? "deposit" : "withdrawal", description: "Manual entry", amount: n, account: which === "checking" ? "Checking" : "Savings" });
-    save(withSnapshot(next));
+    const nextVal = Number(data[which]) + delta;
+    const next = { ...data, [which]: nextVal };
+    commit({
+      main: { [which]: nextVal },
+      add: {
+        transactions: [{ date: todayStr(), type: sign > 0 ? "deposit" : "withdrawal", description: "Manual entry", amount: n, account: which === "checking" ? "Checking" : "Savings" }],
+        history: [historyEntry(next)],
+      },
+    });
     setAcctAmt({ ...acctAmt, [which]: "" });
   };
   const doTransfer = (direction) => {
@@ -656,8 +656,14 @@ function Ledger({ data, save, saveStatus, userEmail, onSignOut }) {
     if (!n) return;
     let checking = Number(data.checking), savings = Number(data.savings);
     if (direction === "toSavings") { checking -= n; savings += n; } else { checking += n; savings -= n; }
-    let next = pushTxn({ ...data, checking, savings }, { type: "transfer", description: direction === "toSavings" ? "Checking → Savings" : "Savings → Checking", amount: n, account: "Transfer" });
-    save(withSnapshot(next));
+    const next = { ...data, checking, savings };
+    commit({
+      main: { checking, savings },
+      add: {
+        transactions: [{ date: todayStr(), type: "transfer", description: direction === "toSavings" ? "Checking → Savings" : "Savings → Checking", amount: n, account: "Transfer" }],
+        history: [historyEntry(next)],
+      },
+    });
     setTransferAmt("");
   };
 
@@ -665,16 +671,22 @@ function Ledger({ data, save, saveStatus, userEmail, onSignOut }) {
   const addPaycheckEntry = () => {
     if (!newPaycheck.amount) return;
     const amount = Number(newPaycheck.amount);
-    const entry = { id: uid(), date: newPaycheck.date || todayStr(), amount, note: newPaycheck.note };
-    let next = { ...data, income: [...data.income, entry] };
-    if (newPaycheck.addToChecking) next.checking = Number(next.checking) + amount;
-    next = pushTxn(next, { type: "income", description: newPaycheck.note || "Paycheck", amount, account: newPaycheck.addToChecking ? "Checking" : "(not deposited)" });
-    save(withSnapshot(next));
+    const date = newPaycheck.date || todayStr();
+    const nextChecking = newPaycheck.addToChecking ? Number(data.checking) + amount : Number(data.checking);
+    const next = { ...data, checking: nextChecking };
+    commit({
+      main: newPaycheck.addToChecking ? { checking: nextChecking } : undefined,
+      add: {
+        income: [{ date, amount, note: newPaycheck.note }],
+        transactions: [{ date: todayStr(), type: "income", description: newPaycheck.note || "Paycheck", amount, account: newPaycheck.addToChecking ? "Checking" : "(not deposited)" }],
+        history: [historyEntry(next)],
+      },
+    });
     setNewPaycheck({ date: todayStr(), amount: "", note: "", addToChecking: true });
   };
   const removePaycheck = (id) => {
     if (!window.confirm("Delete this paycheck entry?")) return;
-    save({ ...data, income: data.income.filter((p) => p.id !== id) });
+    removeItem("income", id);
   };
 
   /* ---- spending ---- */
@@ -684,8 +696,15 @@ function Ledger({ data, save, saveStatus, userEmail, onSignOut }) {
     if (!catId || !amt) return;
     const cat = data.categories.find((c) => c.id === catId);
     const nextChecking = Number(data.checking) - amt;
-    let next = pushTxn({ ...data, expenses: [...data.expenses, { id: uid(), categoryId: catId, amount: amt, month: currentMonth }], checking: nextChecking }, { type: "expense", description: cat ? cat.name : "Expense", amount: amt, account: "Checking" });
-    save(withSnapshot(next));
+    const next = { ...data, checking: nextChecking };
+    commit({
+      main: { checking: nextChecking },
+      add: {
+        expenses: [{ categoryId: catId, amount: amt, month: currentMonth }],
+        transactions: [{ date: todayStr(), type: "expense", description: cat ? cat.name : "Expense", amount: amt, account: "Checking" }],
+        history: [historyEntry(next)],
+      },
+    });
     setSpendForm({ ...spendForm, amount: "" });
   };
 
@@ -710,8 +729,14 @@ function Ledger({ data, save, saveStatus, userEmail, onSignOut }) {
       return nd;
     });
     if (source === "checking") nextChecking -= amount;
-    let next = pushTxn({ ...data, debts: nextDebts, checking: nextChecking }, { type: "debt-payment", description: debtNameById(id), amount, account: sourceLabel(source, sourceOptionsBase) });
-    save(withSnapshot(next));
+    const next = { ...data, debts: nextDebts, checking: nextChecking };
+    commit({
+      main: { debts: nextDebts, checking: nextChecking },
+      add: {
+        transactions: [{ date: today, type: "debt-payment", description: debtNameById(id), amount, account: sourceLabel(source, sourceOptionsBase) }],
+        history: [historyEntry(next)],
+      },
+    });
     setDebtPay({ ...debtPay, [id]: { ...cfg, amount: "" } });
   };
   const chargeDebt = (id) => {
@@ -724,8 +749,14 @@ function Ledger({ data, save, saveStatus, userEmail, onSignOut }) {
       const accrued = accrueDebt(d, today);
       return { ...accrued, balance: accrued.balance + amount, totalCharged: (d.totalCharged || 0) + amount };
     });
-    let next = pushTxn({ ...data, debts: nextDebts }, { type: "debt-charge", description: debtNameById(id), amount, account: debtNameById(id) });
-    save(withSnapshot(next));
+    const next = { ...data, debts: nextDebts };
+    commit({
+      main: { debts: nextDebts },
+      add: {
+        transactions: [{ date: today, type: "debt-charge", description: debtNameById(id), amount, account: debtNameById(id) }],
+        history: [historyEntry(next)],
+      },
+    });
     setDebtPay({ ...debtPay, [id]: { ...cfg, amount: "" } });
   };
   const toggleSeries = (key) => setActiveKeys((k) => k.includes(key) ? k.filter((x) => x !== key) : [...k, key]);
@@ -734,20 +765,9 @@ function Ledger({ data, save, saveStatus, userEmail, onSignOut }) {
   const visibleTxns = showAllTxns ? sortedTxns : sortedTxns.slice(0, 40);
   const resetToSeed = () => {
     if (!window.confirm("Reset everything to your starting bills, debts, and balances? This clears any changes you've made.")) return;
-    save(buildSeedData());
+    replaceAll(buildSeedData());
   };
 
-  /* ---- export / import (manual backup — live sync handles cross-device updates) ---- */
-  const exportData = () => {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `household-ledger-${todayStr()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setImportMsg("Exported as a backup snapshot.");
-  };
   const downloadReport = () => {
     const md = buildReport({ data, whatIf });
     const blob = new Blob([md], { type: "text/markdown" });
@@ -757,24 +777,7 @@ function Ledger({ data, save, saveStatus, userEmail, onSignOut }) {
     a.download = `household-ledger-report-${todayStr()}.md`;
     a.click();
     URL.revokeObjectURL(url);
-    setImportMsg("Report generated — check your downloads.");
-  };
-  const handleImportFile = (file) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const parsed = JSON.parse(reader.result);
-        if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.transactions)) {
-          throw new Error("not a ledger file");
-        }
-        if (!window.confirm("Import this file? It will replace all data currently on this device.")) return;
-        save({ ...DEFAULT_DATA, ...parsed });
-        setImportMsg("Imported successfully.");
-      } catch {
-        setImportMsg("Could not read that file — make sure it's a Household Ledger export.");
-      }
-    };
-    reader.readAsText(file);
+    setReportMsg("Report generated — check your downloads.");
   };
 
   return (
@@ -788,24 +791,15 @@ function Ledger({ data, save, saveStatus, userEmail, onSignOut }) {
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
             <div style={{ display: "flex", gap: 6 }}>
-              <Btn small onClick={exportData}>export</Btn>
-              <Btn small onClick={() => importInputRef.current?.click()}>import</Btn>
               <Btn small primary onClick={downloadReport}>report</Btn>
-              <input
-                ref={importInputRef}
-                type="file"
-                accept="application/json"
-                style={{ display: "none" }}
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportFile(f); e.target.value = ""; }}
-              />
             </div>
             <div style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE }}>
               {userEmail} · <span onClick={onSignOut} style={{ cursor: "pointer", textDecoration: "underline" }}>sign out</span>
             </div>
           </div>
         </div>
-        {importMsg && (
-          <div style={{ fontFamily: MONO, fontSize: 11, color: TEAL, margin: "8px 0 0" }}>{importMsg}</div>
+        {reportMsg && (
+          <div style={{ fontFamily: MONO, fontSize: 11, color: TEAL, margin: "8px 0 0" }}>{reportMsg}</div>
         )}
 
         <div style={{ margin: "18px 0 6px" }}>
@@ -816,8 +810,8 @@ function Ledger({ data, save, saveStatus, userEmail, onSignOut }) {
           />
         </div>
 
-        {page === "debts" && <Debts data={data} save={save} />}
-        {page === "plan" && <Plan data={data} save={save} whatIf={whatIf} setWhatIf={setWhatIf} />}
+        {page === "debts" && <Debts data={data} commit={commit} />}
+        {page === "plan" && <Plan data={data} commit={commit} whatIf={whatIf} setWhatIf={setWhatIf} />}
 
         {page === "ledger" && (
         <>

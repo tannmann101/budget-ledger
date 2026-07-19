@@ -90,11 +90,23 @@ export function buildReport({ data, whatIf }) {
   push();
 
   push("## Debt Accounts");
-  push("| Account | Balance | Rate | Credit Limit | Min Pmt | Last Updated |");
-  push("|---|---|---|---|---|---|");
+  push("| Account | Balance | Rate | Credit Limit | Min Pmt | Paid to it | Charged to it | Last Updated |");
+  push("|---|---|---|---|---|---|---|---|");
   for (const d of data.debts || []) {
     const accrued = accrueDebt(d, today);
-    push(`| ${d.name} | ${fmt(accrued.balance)} | ${d.rate ? `${d.rate}%` : "—"} | ${d.creditLimit ? fmt(d.creditLimit) : "—"} | ${d.minPayment ? fmt(d.minPayment) : "—"} | ${d.lastUpdated || "—"} |`);
+    push(`| ${d.name} | ${fmt(accrued.balance)} | ${d.rate ? `${d.rate}%` : "—"} | ${d.creditLimit ? fmt(d.creditLimit) : "—"} | ${d.minPayment ? fmt(d.minPayment) : "—"} | ${fmt(d.totalPaid || 0)} | ${fmt(d.totalCharged || 0)} | ${d.lastUpdated || "—"} |`);
+  }
+  push();
+
+  push("## Fixed Bills");
+  if ((data.bills || []).length === 0) {
+    push("_No bills configured._");
+  } else {
+    push("| Bill | Amount | Day | Status |");
+    push("|---|---|---|---|");
+    for (const b of data.bills || []) {
+      push(`| ${b.name} | ${b.amount ? fmt(b.amount) : "—"} | ${b.day || "—"} | ${b.status || "—"} |`);
+    }
   }
   push();
 
@@ -111,16 +123,17 @@ export function buildReport({ data, whatIf }) {
     if (!recentMonths.has(e.month)) continue;
     const cat = (data.categories || []).find((c) => c.id === e.categoryId);
     const name = cat ? cat.name : e.categoryId;
-    categoryTotals.set(name, (categoryTotals.get(name) || 0) + Number(e.amount || 0));
+    const prev = categoryTotals.get(name) || { total: 0, limit: cat?.limit };
+    categoryTotals.set(name, { total: prev.total + Number(e.amount || 0), limit: prev.limit });
   }
   push("## Category Spend (trailing 3 months)");
   if (categoryTotals.size === 0) {
     push("_No logged expenses in this window._");
   } else {
-    push("| Category | Total |");
-    push("|---|---|");
-    for (const [name, total] of [...categoryTotals.entries()].sort((a, b) => b[1] - a[1])) {
-      push(`| ${name} | ${fmt(total)} |`);
+    push("| Category | Total (3mo) | Monthly Limit |");
+    push("|---|---|---|");
+    for (const [name, { total, limit }] of [...categoryTotals.entries()].sort((a, b) => b[1].total - a[1].total)) {
+      push(`| ${name} | ${fmt(total)} | ${limit ? fmt(limit) : "—"} |`);
     }
   }
   push();

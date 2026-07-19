@@ -9,24 +9,18 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 const fmt = (n) =>
   (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-function pushTxn(nextData, txn) {
-  const transactions = [...(nextData.transactions || []), { id: uid(), date: todayStr(), ...txn }];
-  return { ...nextData, transactions };
-}
-function withSnapshot(nextData) {
+// One history doc per day (upserted by date) -- see App.jsx's historyEntry, same pattern.
+function historyEntry(nextData) {
   const today = todayStr();
   const debtTotal = (nextData.debts || []).reduce((s, d) => s + accrueDebt(d, today).balance, 0);
-  const history = (nextData.history || []).filter((h) => h.date !== today);
-  history.push({ date: today, checking: Number(nextData.checking), savings: Number(nextData.savings), debt: debtTotal });
-  history.sort((a, b) => a.date.localeCompare(b.date));
-  return { ...nextData, history };
+  return { date: today, checking: Number(nextData.checking), savings: Number(nextData.savings), debt: debtTotal };
 }
 function sourceLabel(sourceId, options) {
   const opt = options.find((o) => o.id === sourceId);
   return opt ? opt.label : "Checking";
 }
 
-export default function Debts({ data, save }) {
+export default function Debts({ data, commit }) {
   const [newDebt, setNewDebt] = useState({ name: "", balance: "", rate: "", minPayment: "", creditLimit: "" });
   const [debtPay, setDebtPay] = useState({});
   const [debtCorrect, setDebtCorrect] = useState({});
@@ -44,12 +38,14 @@ export default function Debts({ data, save }) {
       creditLimit: newDebt.creditLimit ? Number(newDebt.creditLimit) : null,
       lastUpdated: todayStr(), totalPaid: 0, totalCharged: 0,
     };
-    save(withSnapshot({ ...data, debts: [...data.debts, debt] }));
+    const nextDebts = [...data.debts, debt];
+    commit({ main: { debts: nextDebts }, add: { history: [historyEntry({ ...data, debts: nextDebts })] } });
     setNewDebt({ name: "", balance: "", rate: "", minPayment: "", creditLimit: "" });
   };
   const removeDebt = (id) => {
     if (!window.confirm(`Delete "${debtNameById(id)}"? This removes the account and its history from the ledger.`)) return;
-    save(withSnapshot({ ...data, debts: data.debts.filter((d) => d.id !== id) }));
+    const nextDebts = data.debts.filter((d) => d.id !== id);
+    commit({ main: { debts: nextDebts }, add: { history: [historyEntry({ ...data, debts: nextDebts })] } });
   };
   const payDebt = (id) => {
     const cfg = debtPay[id] || {};
@@ -71,8 +67,14 @@ export default function Debts({ data, save }) {
       return nd;
     });
     if (source === "checking") nextChecking -= amount;
-    let next = pushTxn({ ...data, debts: nextDebts, checking: nextChecking }, { type: "debt-payment", description: debtNameById(id), amount, account: sourceLabel(source, sourceOptionsBase) });
-    save(withSnapshot(next));
+    const next = { ...data, debts: nextDebts, checking: nextChecking };
+    commit({
+      main: { debts: nextDebts, checking: nextChecking },
+      add: {
+        transactions: [{ date: today, type: "debt-payment", description: debtNameById(id), amount, account: sourceLabel(source, sourceOptionsBase) }],
+        history: [historyEntry(next)],
+      },
+    });
     setDebtPay({ ...debtPay, [id]: { ...cfg, amount: "" } });
   };
   const chargeDebt = (id) => {
@@ -85,8 +87,14 @@ export default function Debts({ data, save }) {
       const accrued = accrueDebt(d, today);
       return { ...accrued, balance: accrued.balance + amount, totalCharged: (d.totalCharged || 0) + amount };
     });
-    let next = pushTxn({ ...data, debts: nextDebts }, { type: "debt-charge", description: debtNameById(id), amount, account: debtNameById(id) });
-    save(withSnapshot(next));
+    const next = { ...data, debts: nextDebts };
+    commit({
+      main: { debts: nextDebts },
+      add: {
+        transactions: [{ date: today, type: "debt-charge", description: debtNameById(id), amount, account: debtNameById(id) }],
+        history: [historyEntry(next)],
+      },
+    });
     setDebtPay({ ...debtPay, [id]: { ...cfg, amount: "" } });
   };
   const correctDebt = (id) => {
@@ -95,8 +103,14 @@ export default function Debts({ data, save }) {
     const newBalance = Number(val);
     const old = (data.debts.find((d) => d.id === id) || {}).balance || 0;
     const nextDebts = data.debts.map((d) => d.id === id ? { ...d, balance: newBalance, lastUpdated: todayStr() } : d);
-    let next = pushTxn({ ...data, debts: nextDebts }, { type: "correction", description: `${debtNameById(id)} balance corrected`, amount: newBalance - old, account: debtNameById(id) });
-    save(withSnapshot(next));
+    const next = { ...data, debts: nextDebts };
+    commit({
+      main: { debts: nextDebts },
+      add: {
+        transactions: [{ date: todayStr(), type: "correction", description: `${debtNameById(id)} balance corrected`, amount: newBalance - old, account: debtNameById(id) }],
+        history: [historyEntry(next)],
+      },
+    });
     setDebtCorrect({ ...debtCorrect, [id]: "" });
   };
 
