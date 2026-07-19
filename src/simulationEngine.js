@@ -18,7 +18,6 @@ export const DEFAULT_ASSUMPTIONS = {
   fixedBillsMonthly: 2207.4,
   certCadenceDays: 45,
   extraDebtPaymentPerPeriod: 0,
-  oneOffs: [],
 };
 
 export const ONCALL_CYCLE_DEFAULT = [250, 250, 125, 250, 125];
