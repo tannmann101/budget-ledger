@@ -1,19 +1,21 @@
 import { useState, useEffect } from "react";
 import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
 import { auth, googleProvider } from "./firebase";
+import { SANS, MONO, PAGE, CARD, INK, MUTE, LINE, TEAL, BRICK, RADIUS, RADIUS_SM, SHADOW_CARD } from "./theme";
+import { GlobalStyle } from "./ui";
 
-const SANS = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-const PAGE = "#F6F6F4";
-const INK = "#1A1A1A";
-const MUTE = "#6B6B68";
-const TEAL = "#2E6F62";
-const BRICK = "#B3432B";
-
-export function Centered({ children }) {
+export function Centered({ children, bare }) {
   return (
     <div style={{ minHeight: "100vh", background: PAGE, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: SANS, padding: 20 }}>
-      <div style={{ maxWidth: 360, textAlign: "center" }}>{children}</div>
+      <GlobalStyle />
+      {bare ? (
+        <div style={{ maxWidth: 360, textAlign: "center" }}>{children}</div>
+      ) : (
+        <div style={{
+          maxWidth: 380, width: "100%", textAlign: "center", background: CARD, border: `1px solid ${LINE}`,
+          borderRadius: RADIUS, boxShadow: SHADOW_CARD, padding: "36px 32px",
+        }}>{children}</div>
+      )}
     </div>
   );
 }
@@ -22,9 +24,10 @@ function GoogleButton({ onClick, label = "Sign in with Google" }) {
   return (
     <button
       onClick={onClick}
+      className="ui-btn ui-btn-primary"
       style={{
-        border: `1px solid ${INK}`, background: INK, color: "#fff", fontFamily: SANS, fontWeight: 600,
-        fontSize: 14, padding: "10px 18px", borderRadius: 6, cursor: "pointer",
+        "--btn-c": INK, border: `1px solid ${INK}`, background: INK, color: "#fff", fontFamily: SANS, fontWeight: 600,
+        fontSize: 14, padding: "11px 20px", borderRadius: RADIUS, cursor: "pointer", width: "100%",
       }}
     >
       {label}
@@ -55,14 +58,15 @@ export default function AuthGate({ user, forbidden, children }) {
   };
 
   if (user === undefined) {
-    return <Centered><span style={{ fontFamily: MONO, color: MUTE, fontSize: 13 }}>loading…</span></Centered>;
+    return <Centered bare><span style={{ fontFamily: MONO, color: MUTE, fontSize: 13 }}>loading…</span></Centered>;
   }
 
   if (!user) {
     return (
       <Centered>
-        <h1 style={{ fontFamily: SANS, fontSize: 20, fontWeight: 800, margin: "0 0 6px" }}>Household Ledger</h1>
-        <p style={{ fontFamily: MONO, fontSize: 12.5, color: MUTE, margin: "0 0 20px" }}>Sign in to see your shared ledger.</p>
+        <div style={{ width: 8, height: 8, borderRadius: "50%", background: TEAL, margin: "0 auto 14px" }} />
+        <h1 style={{ fontFamily: SANS, fontSize: 21, fontWeight: 700, letterSpacing: "-0.01em", margin: "0 0 6px", color: INK }}>Household Ledger</h1>
+        <p style={{ fontFamily: MONO, fontSize: 12.5, color: MUTE, margin: "0 0 22px" }}>Sign in to see your shared ledger.</p>
         <GoogleButton onClick={doSignIn} label={signingIn ? "Signing in…" : "Sign in with Google"} />
         {error && <p style={{ fontFamily: MONO, fontSize: 11.5, color: BRICK, marginTop: 14 }}>{error}</p>}
       </Centered>
@@ -72,16 +76,17 @@ export default function AuthGate({ user, forbidden, children }) {
   if (forbidden) {
     return (
       <Centered>
-        <h1 style={{ fontFamily: SANS, fontSize: 20, fontWeight: 800, margin: "0 0 6px" }}>Not authorized</h1>
+        <h1 style={{ fontFamily: SANS, fontSize: 21, fontWeight: 700, letterSpacing: "-0.01em", margin: "0 0 6px", color: INK }}>Not authorized</h1>
         <p style={{ fontFamily: MONO, fontSize: 12.5, color: MUTE, margin: "0 0 6px" }}>
           Signed in as <strong style={{ color: INK }}>{user.email}</strong>
         </p>
-        <p style={{ fontFamily: MONO, fontSize: 12.5, color: MUTE, margin: "0 0 20px" }}>
+        <p style={{ fontFamily: MONO, fontSize: 12.5, color: MUTE, margin: "0 0 22px" }}>
           This ledger is restricted to specific accounts. Sign out and try a different one.
         </p>
         <button
+          className="ui-btn"
           onClick={() => signOut(auth)}
-          style={{ border: `1px solid ${TEAL}`, background: "transparent", color: TEAL, fontFamily: MONO, fontSize: 12, padding: "6px 12px", borderRadius: 4, cursor: "pointer" }}
+          style={{ "--btn-c": TEAL, border: `1px solid ${TEAL}`, background: "transparent", color: TEAL, fontFamily: MONO, fontSize: 12, padding: "7px 14px", borderRadius: RADIUS_SM, cursor: "pointer" }}
         >
           sign out
         </button>

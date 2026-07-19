@@ -1,89 +1,13 @@
 import { useState, Fragment } from "react";
 import { accrueDebt } from "./debtAccrual";
+import { MONO, MUTE, LINE, HEAD_BG, BRICK, GOLD } from "./theme";
+import { Table, Th, Td, Btn, Input, Select, SectionTitle, Note } from "./ui";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
-const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-const SANS = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-const BG = "#FFFFFF";
-const INK = "#1A1A1A";
-const MUTE = "#6B6B68";
-const LINE = "#DEDEDA";
-const HEAD_BG = "#EFEFEC";
-const TEAL = "#2E6F62";
-const BRICK = "#B3432B";
-const GOLD = "#A5760F";
-
 const fmt = (n) =>
   (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-function Table({ children }) {
-  return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: SANS }}>
-        {children}
-      </table>
-    </div>
-  );
-}
-function Th({ children, align }) {
-  return (
-    <th style={{
-      textAlign: align || "left", padding: "7px 10px", background: HEAD_BG, borderBottom: `1px solid ${LINE}`,
-      fontSize: 11, fontWeight: 600, letterSpacing: "0.02em", color: MUTE, textTransform: "uppercase", whiteSpace: "nowrap",
-    }}>{children}</th>
-  );
-}
-function Td({ children, align, mono, muted, colSpan, bg }) {
-  return (
-    <td colSpan={colSpan} style={{
-      textAlign: align || "left", padding: "7px 10px", borderBottom: `1px solid ${LINE}`,
-      fontFamily: mono ? MONO : SANS, color: muted ? MUTE : INK, background: bg, whiteSpace: "nowrap",
-    }}>{children}</td>
-  );
-}
-function Btn({ onClick, children, color = TEAL, small }) {
-  return (
-    <button onClick={onClick} style={{
-      border: `1px solid ${color}`, background: "transparent", color, fontFamily: MONO,
-      fontSize: small ? 11 : 12, padding: small ? "3px 7px" : "5px 10px", borderRadius: 4, cursor: "pointer", whiteSpace: "nowrap",
-    }}>{children}</button>
-  );
-}
-function Input({ value, onChange, placeholder, width, type = "text", onEnter }) {
-  return (
-    <input
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      onKeyDown={(e) => { if (e.key === "Enter" && onEnter) onEnter(); }}
-      placeholder={placeholder}
-      type={type}
-      inputMode={type === "number" ? "decimal" : undefined}
-      style={{
-        border: `1px solid ${LINE}`, borderRadius: 4, padding: "4px 6px", fontSize: 12.5,
-        fontFamily: type === "number" ? MONO : SANS, color: INK, width: width || 90, background: BG,
-      }}
-    />
-  );
-}
-function Select({ value, onChange, options, width }) {
-  return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} style={{
-      border: `1px solid ${LINE}`, borderRadius: 4, padding: "4px 6px", fontSize: 12, fontFamily: MONO, background: BG, color: INK, width,
-    }}>
-      {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-    </select>
-  );
-}
-function SectionTitle({ children, note }) {
-  return (
-    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", margin: "30px 0 8px", gap: 10, flexWrap: "wrap" }}>
-      <h2 style={{ fontFamily: SANS, fontSize: 15, fontWeight: 700, color: INK, margin: 0, textTransform: "uppercase", letterSpacing: "0.03em" }}>{children}</h2>
-      {note && <span style={{ fontFamily: MONO, fontSize: 11.5, color: MUTE }}>{note}</span>}
-    </div>
-  );
-}
 
 function pushTxn(nextData, txn) {
   const transactions = [...(nextData.transactions || []), { id: uid(), date: todayStr(), ...txn }];
@@ -236,11 +160,11 @@ export default function Debts({ data, save }) {
           </tr>
         </tbody>
       </Table>
-      <p style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE, marginTop: 10 }}>
+      <Note>
         Balances accrue interest daily based on each account's rate since its last update — logging a payment or
         charge applies that accrual first, then the amount. "Set exact" treats your entry as ground truth from your
         statement instead, with no accrual added on top. Credit limit is informational only.
-      </p>
+      </Note>
     </>
   );
 }

@@ -1,78 +1,12 @@
 import { useState, useMemo } from "react";
 import { simulate, DEFAULT_ASSUMPTIONS, payBreakdown } from "./simulationEngine";
-
-const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-const SANS = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-const BG = "#FFFFFF";
-const INK = "#1A1A1A";
-const MUTE = "#6B6B68";
-const LINE = "#DEDEDA";
-const HEAD_BG = "#EFEFEC";
-const TEAL = "#2E6F62";
-const BRICK = "#B3432B";
-const GOLD = "#A5760F";
+import { MONO, BG, INK, MUTE, LINE, HEAD_BG, TEAL, BRICK, GOLD } from "./theme";
+import { Table, Th, Td, Btn, Input, SectionTitle, TabBar, Card, Note } from "./ui";
 
 const fmt = (n) =>
   (n < 0 ? "-$" : "$") + Math.abs(Math.round(n)).toLocaleString();
 const fmtDate = (d) => d.toLocaleDateString(undefined, { month: "short", year: "2-digit" });
 const fmtDateLong = (d) => d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-
-function Table({ children }) {
-  return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: SANS }}>
-        {children}
-      </table>
-    </div>
-  );
-}
-function Th({ children, align }) {
-  return (
-    <th style={{
-      textAlign: align || "left", padding: "7px 10px", background: HEAD_BG, borderBottom: `1px solid ${LINE}`,
-      fontSize: 11, fontWeight: 600, letterSpacing: "0.02em", color: MUTE, textTransform: "uppercase", whiteSpace: "nowrap",
-    }}>{children}</th>
-  );
-}
-function Td({ children, align, mono, muted }) {
-  return (
-    <td style={{
-      textAlign: align || "left", padding: "7px 10px", borderBottom: `1px solid ${LINE}`,
-      fontFamily: mono ? MONO : SANS, color: muted ? MUTE : INK, whiteSpace: "nowrap",
-    }}>{children}</td>
-  );
-}
-function Btn({ onClick, children, color = TEAL, small }) {
-  return (
-    <button onClick={onClick} style={{
-      border: `1px solid ${color}`, background: "transparent", color, fontFamily: MONO,
-      fontSize: small ? 11 : 12, padding: small ? "3px 7px" : "5px 10px", borderRadius: 4, cursor: "pointer", whiteSpace: "nowrap",
-    }}>{children}</button>
-  );
-}
-function Input({ value, onChange, placeholder, width, type = "text" }) {
-  return (
-    <input
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      type={type}
-      inputMode={type === "number" ? "decimal" : undefined}
-      style={{
-        border: `1px solid ${LINE}`, borderRadius: 4, padding: "4px 6px", fontSize: 12.5,
-        fontFamily: type === "number" ? MONO : SANS, color: INK, width: width || 90, background: BG,
-      }}
-    />
-  );
-}
-function SectionTitle({ children, note }) {
-  return (
-    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", margin: "30px 0 8px", gap: 10, flexWrap: "wrap" }}>
-      <h2 style={{ fontFamily: SANS, fontSize: 15, fontWeight: 700, color: INK, margin: 0, textTransform: "uppercase", letterSpacing: "0.03em" }}>{children}</h2>
-      {note && <span style={{ fontFamily: MONO, fontSize: 11.5, color: MUTE }}>{note}</span>}
-    </div>
-  );
-}
 
 // Picks x-axis ticks that stay readable across both a few-month and a
 // multi-year horizon: one per calendar year once the span is long enough,
@@ -100,24 +34,46 @@ function rowAt(rows, i) {
   return rows[Math.min(i, rows.length - 1)];
 }
 
-function insightText({ rows, whatIfRows, changed, hover, startingDebt }) {
+// Turns a raw assumptions object into a spoken-language clause, e.g.
+// "10 OT hrs/pay period, 2 on-call events/mo, and a 45-day cert cadence" —
+// the "why" behind whichever projection is being described.
+function scenarioClause(a) {
+  const otHrs = Number(a.otHoursPerPeriod) || 0;
+  const events = Number(a.onCallEventsPerMonth) || 0;
+  const otPart = otHrs > 0 ? `${otHrs} OT hr${otHrs === 1 ? "" : "s"}/pay period` : "no overtime";
+  const onCallPart = `${events} on-call event${events === 1 ? "" : "s"}/mo`;
+  const certPart = `a ${a.certCadenceDays}-day cert cadence`;
+  return `${otPart}, ${onCallPart}, and ${certPart}`;
+}
+
+function insightText({ plan, whatIfPlan, changed, hover, startingDebt, assumptions, whatIf }) {
+  const rows = plan.rows;
   const r = rowAt(rows, hover);
   const paidOff = r.debt <= 0.5;
   const pctPaid = startingDebt > 0 ? Math.max(0, Math.min(100, Math.round((1 - r.debt / startingDebt) * 100))) : 0;
-  let text = `As of ${fmtDateLong(r.date)}, the saved plan projects `
-    + (paidOff ? "debt fully paid off" : `${fmt(r.debt)} still owed (${pctPaid}% paid down)`)
-    + `, ${fmt(r.savings)} in savings, and ${fmt(r.interestToDate)} in interest paid so far.`;
-  if (changed && whatIfRows) {
-    const wr = rowAt(whatIfRows, hover);
+
+  let text = `With ${scenarioClause(assumptions)}, the saved plan has you `
+    + (paidOff ? "fully debt-free" : `${pctPaid}% of the way to debt-free`)
+    + ` by ${fmtDateLong(r.date)}`;
+  if (!paidOff && plan.payoffPeriod) {
+    text += `, on pace to be completely debt-free by ${fmtDateLong(plan.payoffDate)}`;
+  }
+  text += `, having banked ${fmt(r.savings)} in savings against ${fmt(r.interestToDate)} in interest paid so far.`;
+
+  if (changed && whatIfPlan) {
+    const wr = rowAt(whatIfPlan.rows, hover);
     const delta = wr.debt - r.debt;
-    const deltaText = Math.abs(delta) < 1 ? "about the same as" : `${fmt(Math.abs(delta))} ${delta < 0 ? "lower than" : "higher than"}`;
-    text += ` Under the current what-if, debt would be ${fmt(wr.debt)} at this point — ${deltaText} the saved plan.`;
+    const deltaText = Math.abs(delta) < 1
+      ? "land in about the same place"
+      : delta < 0 ? `be ${fmt(Math.abs(delta))} further ahead` : `be ${fmt(Math.abs(delta))} further behind`;
+    text += ` Swap in ${scenarioClause(whatIf)} instead, and you'd ${deltaText} at this point`;
+    text += whatIfPlan.payoffPeriod ? ` — debt-free by ${fmtDateLong(whatIfPlan.payoffDate)}.` : ".";
   }
   return text;
 }
 
 // Hand-rolled SVG chart, same approach as App.jsx's TrendChart — no chart library.
-function PlanChart({ plan, whatIfPlan, changed, startingDebt }) {
+function PlanChart({ plan, whatIfPlan, changed, startingDebt, assumptions, whatIf }) {
   const rows = plan.rows;
   const whatIfRows = changed ? whatIfPlan.rows : null;
   const W = 700, H = 260, PAD_L = 58, PAD_R = 14, PAD_T = 14, PAD_B = 26;
@@ -178,14 +134,11 @@ function PlanChart({ plan, whatIfPlan, changed, startingDebt }) {
           </g>
         )}
       </svg>
-      <div style={{
-        marginTop: 8, padding: "8px 10px", background: HEAD_BG, borderRadius: 4,
-        fontFamily: MONO, fontSize: 11.5, color: INK, lineHeight: 1.5, minHeight: 34,
-      }}>
+      <Card tint={HEAD_BG} style={{ marginTop: 10, fontFamily: MONO, fontSize: 11.5, color: INK, lineHeight: 1.55, minHeight: 34 }}>
         {hover !== null
-          ? insightText({ rows, whatIfRows, changed, hover, startingDebt })
-          : <span style={{ color: MUTE }}>Hover the chart for a plain-English breakdown of debt, savings, and interest paid at that point.</span>}
-      </div>
+          ? insightText({ plan, whatIfPlan: changed ? whatIfPlan : null, changed, hover, startingDebt, assumptions, whatIf })
+          : <span style={{ color: MUTE }}>Hover the chart for a plain-English read of what your current numbers mean at that point in time.</span>}
+      </Card>
     </div>
   );
 }
@@ -244,37 +197,47 @@ export default function Plan({ data, save, whatIf, setWhatIf }) {
           </tr>
         </tbody>
       </Table>
+      <Note>
+        Savings barely moves while debt is outstanding — the avalanche method sends nearly every surplus dollar
+        at the highest-rate debt first, so savings mostly only grows from the savings-share of periodic cert
+        bonuses until the debt-free date. Once debt hits $0, all further surplus flows straight into savings.
+      </Note>
       <div style={{ marginTop: 12 }}>
-        <PlanChart plan={plan} whatIfPlan={whatIfPlan} changed={changed} startingDebt={plan.rows[0].debt} />
+        <PlanChart plan={plan} whatIfPlan={whatIfPlan} changed={changed} startingDebt={plan.rows[0].debt} assumptions={assumptions} whatIf={whatIf} />
       </div>
-      <p style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE, margin: "6px 0 0" }}>
+      <p style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE, margin: "8px 0 0" }}>
         <span style={{ color: TEAL }}>■</span> saved plan
         {changed && <> &nbsp; <span style={{ color: GOLD }}>■</span> what-if (not saved)</>}
       </p>
 
       <SectionTitle note="adjust and preview before saving — this is a scratch preview, not saved until you click below">What-if</SectionTitle>
-      <div style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE, textTransform: "uppercase", letterSpacing: "0.03em", margin: "0 0 6px" }}>Pay</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginBottom: 14 }}>
-        {field("baseHourlyRate", "Base rate ($/hr)", 80)}
-        {field("takeHomeRate", "Take-home rate (0-1)", 90)}
-        {field("otHoursPerPeriod", "OT hrs/pay period", 80)}
-        {field("otHourlyRate", "OT rate ($/hr, gross)", 90)}
-        {field("onCallEventsPerMonth", "On-call/Sat events per mo", 80)}
-        {field("certCadenceDays", "Cert cadence (days)")}
-        {field("certRaiseMonthly", "Cert raise ($/mo)", 90)}
-        {field("certBonusAmount", "Cert bonus ($)", 90)}
-      </div>
-      <div style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE, textTransform: "uppercase", letterSpacing: "0.03em", margin: "0 0 6px" }}>Debt &amp; Bills</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginBottom: 14 }}>
-        {field("fixedBillsMonthly", "Fixed bills ($/mo)", 100)}
-        {field("extraDebtPaymentPerPeriod", "Extra debt pmt ($/period)", 100)}
-        {field("allocationSplit", "Split to debt (0-1)", 80)}
-      </div>
+      <Card>
+        <div style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE, textTransform: "uppercase", letterSpacing: "0.03em", margin: "0 0 8px" }}>Pay</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginBottom: 16 }}>
+          {field("baseHourlyRate", "Base rate ($/hr)", 80)}
+          {field("takeHomeRate", "Take-home rate (0-1)", 90)}
+          {field("otHoursPerPeriod", "OT hrs/pay period", 80)}
+          {field("otHourlyRate", "OT rate ($/hr, gross)", 90)}
+          {field("onCallEventsPerMonth", "On-call/Sat events per mo", 80)}
+          {field("certCadenceDays", "Cert cadence (days)")}
+          {field("certRaiseMonthly", "Cert raise ($/mo)", 90)}
+          {field("certBonusAmount", "Cert bonus ($)", 90)}
+        </div>
+        <div style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE, textTransform: "uppercase", letterSpacing: "0.03em", margin: "0 0 8px" }}>Debt &amp; Bills</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
+          {field("fixedBillsMonthly", "Fixed bills ($/mo)", 100)}
+          {field("extraDebtPaymentPerPeriod", "Extra debt pmt ($/period)", 100)}
+          {field("allocationSplit", "Split to debt (0-1)", 80)}
+        </div>
+      </Card>
 
       <SectionTitle note="how net pay is actually calculated — no black boxing">Pay Calculation</SectionTitle>
-      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-        <Btn small color={payView === "period" ? INK : MUTE} onClick={() => setPayView("period")}>Per Period</Btn>
-        <Btn small color={payView === "month" ? INK : MUTE} onClick={() => setPayView("month")}>Per Month</Btn>
+      <div style={{ marginBottom: 12 }}>
+        <TabBar
+          active={payView}
+          onChange={setPayView}
+          tabs={[{ id: "period", label: "Per Period" }, { id: "month", label: "Per Month" }]}
+        />
       </div>
       <Table>
         <thead><tr>
@@ -305,15 +268,15 @@ export default function Plan({ data, save, whatIf, setWhatIf }) {
           </tr>
         </tbody>
       </Table>
-      <p style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE, margin: "6px 0 14px" }}>
+      <Note>
         Gross = base rate × 80 hrs per pay period{payView === "month" ? ", scaled to a monthly figure (× 26 pay periods ÷ 12 months)" : ""}.
         On-call = events/mo × $250/event, gross. OT and on-call are both taxed at the same take-home rate as
         base pay — neither is tax-free. Every number above comes from the What-if fields — change one and this
         recalculates.
-      </p>
+      </Note>
 
       {changed && (
-        <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 14, fontFamily: MONO, fontSize: 12.5 }}>
+        <div style={{ display: "flex", gap: 16, alignItems: "center", margin: "18px 0 14px", fontFamily: MONO, fontSize: 12.5 }}>
           <span style={{ color: MUTE }}>vs. saved plan:</span>
           <span style={{ color: payoffDeltaPeriods > 0 ? BRICK : TEAL }}>
             payoff {payoffDeltaPeriods === null ? "—" : payoffDeltaPeriods === 0 ? "unchanged" : `${payoffDeltaPeriods > 0 ? "+" : ""}${(payoffDeltaPeriods / 2.17).toFixed(1)} mo`}
@@ -323,17 +286,17 @@ export default function Plan({ data, save, whatIf, setWhatIf }) {
           </span>
         </div>
       )}
-      <div style={{ display: "flex", gap: 8 }}>
-        <Btn onClick={saveAssumptions} color={TEAL}>Save as plan</Btn>
+      <div style={{ display: "flex", gap: 8, marginTop: changed ? 0 : 18 }}>
+        <Btn onClick={saveAssumptions} color={TEAL} primary>Save as plan</Btn>
         <Btn onClick={resetWhatIf} color={MUTE} small>reset</Btn>
       </div>
-      <p style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE, marginTop: 10 }}>
+      <Note>
         "Save as plan" replaces Current Plan (saved) above with this what-if — that becomes the new committed
         baseline everyone sees. This projection models future interest on a bi-weekly schedule; it doesn't
         touch your real debt balances, which accrue interest daily on their own — see the Debts page.
         This what-if stays in place if you switch pages — use the "report" button on the Ledger page to export
         a full snapshot including it.
-      </p>
+      </Note>
     </>
   );
 }

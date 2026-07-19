@@ -8,18 +8,8 @@ import Debts from "./Debts";
 import { accrueDebt } from "./debtAccrual";
 import { DEFAULT_ASSUMPTIONS } from "./simulationEngine";
 import { buildReport } from "./report";
-
-const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-const SANS = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-const BG = "#FFFFFF";
-const PAGE = "#F6F6F4";
-const INK = "#1A1A1A";
-const MUTE = "#6B6B68";
-const LINE = "#DEDEDA";
-const HEAD_BG = "#EFEFEC";
-const TEAL = "#2E6F62";
-const BRICK = "#B3432B";
-const GOLD = "#A5760F";
+import { MONO, SANS, BG, PAGE, INK, MUTE, LINE, TEAL, BRICK, GOLD, RADIUS_SM } from "./theme";
+import { GlobalStyle, Table, Th, Td, SectionTitle, Btn, Input, Select, TabBar, Card } from "./ui";
 
 const fmt = (n) =>
   (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -401,74 +391,8 @@ function pushTxn(nextData, txn) {
   return { ...nextData, transactions };
 }
 
-/* ---------- shared table primitives ---------- */
+/* ---------- shared table primitives now live in ./ui ---------- */
 
-function Table({ children }) {
-  return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: SANS }}>
-        {children}
-      </table>
-    </div>
-  );
-}
-function Th({ children, align }) {
-  return (
-    <th style={{
-      textAlign: align || "left", padding: "7px 10px", background: HEAD_BG, borderBottom: `1px solid ${LINE}`,
-      fontSize: 11, fontWeight: 600, letterSpacing: "0.02em", color: MUTE, textTransform: "uppercase", whiteSpace: "nowrap",
-    }}>{children}</th>
-  );
-}
-function Td({ children, align, mono, muted, colSpan, bg }) {
-  return (
-    <td colSpan={colSpan} style={{
-      textAlign: align || "left", padding: "7px 10px", borderBottom: `1px solid ${LINE}`,
-      fontFamily: mono ? MONO : SANS, color: muted ? MUTE : INK, background: bg, whiteSpace: "nowrap",
-    }}>{children}</td>
-  );
-}
-function SectionTitle({ children, note }) {
-  return (
-    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", margin: "30px 0 8px", gap: 10, flexWrap: "wrap" }}>
-      <h2 style={{ fontFamily: SANS, fontSize: 15, fontWeight: 700, color: INK, margin: 0, textTransform: "uppercase", letterSpacing: "0.03em" }}>{children}</h2>
-      {note && <span style={{ fontFamily: MONO, fontSize: 11.5, color: MUTE }}>{note}</span>}
-    </div>
-  );
-}
-function Btn({ onClick, children, color = TEAL, small }) {
-  return (
-    <button onClick={onClick} style={{
-      border: `1px solid ${color}`, background: "transparent", color, fontFamily: MONO,
-      fontSize: small ? 11 : 12, padding: small ? "3px 7px" : "5px 10px", borderRadius: 4, cursor: "pointer", whiteSpace: "nowrap",
-    }}>{children}</button>
-  );
-}
-function Input({ value, onChange, placeholder, width, type = "text", onEnter }) {
-  return (
-    <input
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      onKeyDown={(e) => { if (e.key === "Enter" && onEnter) onEnter(); }}
-      placeholder={placeholder}
-      type={type}
-      inputMode={type === "number" ? "decimal" : undefined}
-      style={{
-        border: `1px solid ${LINE}`, borderRadius: 4, padding: "4px 6px", fontSize: 12.5,
-        fontFamily: type === "number" ? MONO : SANS, color: INK, width: width || 90, background: BG,
-      }}
-    />
-  );
-}
-function Select({ value, onChange, options, width }) {
-  return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} style={{
-      border: `1px solid ${LINE}`, borderRadius: 4, padding: "4px 6px", fontSize: 12, fontFamily: MONO, background: BG, color: INK, width,
-    }}>
-      {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-    </select>
-  );
-}
 function sourceLabel(sourceId, options) {
   const opt = options.find((o) => o.id === sourceId);
   return opt ? opt.label : "Checking";
@@ -656,15 +580,15 @@ export default function App() {
   return (
     <AuthGate user={user} forbidden={status === "forbidden"}>
       {status === "loading" && (
-        <Centered><span style={{ fontFamily: MONO, color: MUTE, fontSize: 13 }}>loading…</span></Centered>
+        <Centered bare><span style={{ fontFamily: MONO, color: MUTE, fontSize: 13 }}>loading…</span></Centered>
       )}
       {status === "error" && (
-        <Centered><span style={{ fontFamily: MONO, color: BRICK, fontSize: 13 }}>Couldn't reach the ledger. Check your connection and reload.</span></Centered>
+        <Centered bare><span style={{ fontFamily: MONO, color: BRICK, fontSize: 13 }}>Couldn't reach the ledger. Check your connection and reload.</span></Centered>
       )}
       {status === "ready" && data === null && (
         <Centered>
-          <p style={{ fontFamily: MONO, fontSize: 12.5, color: MUTE, margin: "0 0 16px" }}>No shared ledger exists yet.</p>
-          <Btn onClick={() => save(buildSeedData())}>Create ledger with starting data</Btn>
+          <p style={{ fontFamily: MONO, fontSize: 12.5, color: MUTE, margin: "0 0 18px" }}>No shared ledger exists yet.</p>
+          <Btn primary onClick={() => save(buildSeedData())}>Create ledger with starting data</Btn>
         </Centered>
       )}
       {status === "ready" && data !== null && (
@@ -852,24 +776,18 @@ function Ledger({ data, save, userEmail, onSignOut }) {
 
   return (
     <div style={{ minHeight: "100vh", background: PAGE, fontFamily: SANS }}>
-      <style>{`
-        * { box-sizing: border-box; }
-        input::placeholder { color: ${MUTE}; opacity: 0.6; }
-        input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
-        input[type=checkbox] { accent-color: ${TEAL}; }
-        tr:hover td { background: #FAFAF8; }
-      `}</style>
-      <div style={{ maxWidth: 920, margin: "0 auto", padding: "28px 18px 70px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 8, borderBottom: `2px solid ${INK}`, paddingBottom: 12, marginBottom: 4 }}>
+      <GlobalStyle />
+      <div style={{ maxWidth: 920, margin: "0 auto", padding: "32px 20px 80px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 8, borderBottom: `1px solid ${LINE}`, paddingBottom: 16, marginBottom: 4 }}>
           <div>
-            <h1 style={{ fontFamily: SANS, fontSize: 22, fontWeight: 800, margin: 0 }}>Household Ledger</h1>
-            <div style={{ fontFamily: MONO, fontSize: 11.5, color: MUTE }}>{new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" })}</div>
+            <h1 style={{ fontFamily: SANS, fontSize: 21, fontWeight: 700, letterSpacing: "-0.01em", margin: 0, color: INK }}>Household Ledger</h1>
+            <div style={{ fontFamily: MONO, fontSize: 11.5, color: MUTE, marginTop: 3 }}>{new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" })}</div>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
             <div style={{ display: "flex", gap: 6 }}>
               <Btn small onClick={exportData}>export</Btn>
               <Btn small onClick={() => importInputRef.current?.click()}>import</Btn>
-              <Btn small onClick={downloadReport}>report</Btn>
+              <Btn small primary onClick={downloadReport}>report</Btn>
               <input
                 ref={importInputRef}
                 type="file"
@@ -884,13 +802,15 @@ function Ledger({ data, save, userEmail, onSignOut }) {
           </div>
         </div>
         {importMsg && (
-          <div style={{ fontFamily: MONO, fontSize: 11, color: TEAL, margin: "6px 0 0" }}>{importMsg}</div>
+          <div style={{ fontFamily: MONO, fontSize: 11, color: TEAL, margin: "8px 0 0" }}>{importMsg}</div>
         )}
 
-        <div style={{ display: "flex", gap: 6, margin: "14px 0 4px" }}>
-          <Btn small color={page === "ledger" ? INK : MUTE} onClick={() => setPage("ledger")}>Ledger</Btn>
-          <Btn small color={page === "debts" ? INK : MUTE} onClick={() => setPage("debts")}>Debts</Btn>
-          <Btn small color={page === "plan" ? INK : MUTE} onClick={() => setPage("plan")}>Plan</Btn>
+        <div style={{ margin: "18px 0 6px" }}>
+          <TabBar
+            active={page}
+            onChange={setPage}
+            tabs={[{ id: "ledger", label: "Ledger" }, { id: "debts", label: "Debts" }, { id: "plan", label: "Plan" }]}
+          />
         </div>
 
         {page === "debts" && <Debts data={data} save={save} />}
@@ -1025,9 +945,9 @@ function Ledger({ data, save, userEmail, onSignOut }) {
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
             {SERIES.map((s) => (
               <span key={s.key} onClick={() => toggleSeries(s.key)} style={{
-                cursor: "pointer", fontFamily: MONO, fontSize: 11, padding: "3px 7px", borderRadius: 4,
+                cursor: "pointer", fontFamily: MONO, fontSize: 11, padding: "4px 9px", borderRadius: RADIUS_SM,
                 border: `1px solid ${s.color}`, color: activeKeys.includes(s.key) ? BG : s.color,
-                background: activeKeys.includes(s.key) ? s.color : "transparent",
+                background: activeKeys.includes(s.key) ? s.color : "transparent", transition: "120ms ease",
               }}>{s.label}</span>
             ))}
           </div>
@@ -1035,7 +955,7 @@ function Ledger({ data, save, userEmail, onSignOut }) {
         {chartData.length < 2 || activeSeries.length === 0 ? (
           <p style={{ color: MUTE, fontSize: 12.5, fontFamily: MONO }}>{activeSeries.length === 0 ? "Pick at least one series above." : "This needs at least 2 different days of activity to draw a line — check back tomorrow."}</p>
         ) : (
-          <TrendChart data={chartData} activeSeries={activeSeries} />
+          <Card><TrendChart data={chartData} activeSeries={activeSeries} /></Card>
         )}
 
         {/* Monthly income vs spending */}
@@ -1043,7 +963,7 @@ function Ledger({ data, save, userEmail, onSignOut }) {
         {monthlySummary.length === 0 ? (
           <p style={{ color: MUTE, fontSize: 12.5, fontFamily: MONO }}>Log some income or expenses to see this.</p>
         ) : (
-          <MonthlyBarChart data={monthlySummary} />
+          <Card><MonthlyBarChart data={monthlySummary} /></Card>
         )}
 
         {/* Recent transactions */}
