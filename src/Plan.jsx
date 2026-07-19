@@ -258,7 +258,8 @@ export default function Plan({ data, save, whatIf, setWhatIf }) {
         {field("baseHourlyRate", "Base rate ($/hr)", 80)}
         {field("takeHomeRate", "Take-home rate (0-1)", 90)}
         {field("otHoursPerPeriod", "OT hrs/pay period", 80)}
-        {field("otNetPerHour", "OT rate ($/hr)", 80)}
+        {field("otHourlyRate", "OT rate ($/hr, gross)", 90)}
+        {field("onCallEventsPerMonth", "On-call/Sat events per mo", 80)}
         {field("certCadenceDays", "Cert cadence (days)")}
         {field("certRaiseMonthly", "Cert raise ($/mo)", 90)}
         {field("certBonusAmount", "Cert bonus ($)", 90)}
@@ -278,7 +279,8 @@ export default function Plan({ data, save, whatIf, setWhatIf }) {
       <Table>
         <thead><tr>
           <Th> </Th><Th align="right">Gross</Th><Th align="right">Take-home rate</Th>
-          <Th align="right">Net baseline</Th><Th align="right">+ OT</Th><Th align="right">+ Cert raise</Th><Th align="right">= Total</Th>
+          <Th align="right">Net baseline</Th><Th align="right">+ OT</Th><Th align="right">+ On-call</Th>
+          <Th align="right">+ Cert raise</Th><Th align="right">= Total</Th>
         </tr></thead>
         <tbody>
           <tr>
@@ -287,6 +289,7 @@ export default function Plan({ data, save, whatIf, setWhatIf }) {
             <Td align="right" mono muted>{Math.round(Number(whatIf.takeHomeRate) * 100)}%</Td>
             <Td align="right" mono>{fmt(payNow.baseline * payScale)}</Td>
             <Td align="right" mono>{fmt(payNow.ot * payScale)}</Td>
+            <Td align="right" mono>{fmt(payNow.onCall * payScale)}</Td>
             <Td align="right" mono>{fmt(payNow.certRaise * payScale)}</Td>
             <Td align="right" mono style={{ color: TEAL }}>{fmt(payNow.total * payScale)}</Td>
           </tr>
@@ -296,6 +299,7 @@ export default function Plan({ data, save, whatIf, setWhatIf }) {
             <Td align="right" mono muted>{Math.round(Number(whatIf.takeHomeRate) * 100)}%</Td>
             <Td align="right" mono>{fmt(payAfterNextCert.baseline * payScale)}</Td>
             <Td align="right" mono>{fmt(payAfterNextCert.ot * payScale)}</Td>
+            <Td align="right" mono>{fmt(payAfterNextCert.onCall * payScale)}</Td>
             <Td align="right" mono>{fmt(payAfterNextCert.certRaise * payScale)}</Td>
             <Td align="right" mono style={{ color: TEAL }}>{fmt(payAfterNextCert.total * payScale)}</Td>
           </tr>
@@ -303,8 +307,9 @@ export default function Plan({ data, save, whatIf, setWhatIf }) {
       </Table>
       <p style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE, margin: "6px 0 14px" }}>
         Gross = base rate × 80 hrs per pay period{payView === "month" ? ", scaled to a monthly figure (× 26 pay periods ÷ 12 months)" : ""}.
-        Doesn't include on-call pay, which cycles per period (250/250/125/250/125, a placeholder) rather than
-        being a flat rate. Every number above comes from the What-if fields — change one and this recalculates.
+        On-call = events/mo × $250/event, gross. OT and on-call are both taxed at the same take-home rate as
+        base pay — neither is tax-free. Every number above comes from the What-if fields — change one and this
+        recalculates.
       </p>
 
       {changed && (
