@@ -47,7 +47,10 @@ export default function Debts({ data, save }) {
     save(withSnapshot({ ...data, debts: [...data.debts, debt] }));
     setNewDebt({ name: "", balance: "", rate: "", minPayment: "", creditLimit: "" });
   };
-  const removeDebt = (id) => save(withSnapshot({ ...data, debts: data.debts.filter((d) => d.id !== id) }));
+  const removeDebt = (id) => {
+    if (!window.confirm(`Delete "${debtNameById(id)}"? This removes the account and its history from the ledger.`)) return;
+    save(withSnapshot({ ...data, debts: data.debts.filter((d) => d.id !== id) }));
+  };
   const payDebt = (id) => {
     const cfg = debtPay[id] || {};
     const amount = Number(cfg.amount);

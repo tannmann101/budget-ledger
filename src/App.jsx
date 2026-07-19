@@ -575,7 +575,7 @@ function TrendChart({ data, activeSeries }) {
 
 export default function App() {
   const user = useAuthUser();
-  const [data, save, status] = useCloudLedger(!!user);
+  const [data, save, status, saveStatus] = useCloudLedger(!!user);
 
   return (
     <AuthGate user={user} forbidden={status === "forbidden"}>
@@ -592,13 +592,13 @@ export default function App() {
         </Centered>
       )}
       {status === "ready" && data !== null && (
-        <Ledger data={data} save={save} userEmail={user?.email} onSignOut={() => signOut(auth)} />
+        <Ledger data={data} save={save} saveStatus={saveStatus} userEmail={user?.email} onSignOut={() => signOut(auth)} />
       )}
     </AuthGate>
   );
 }
 
-function Ledger({ data, save, userEmail, onSignOut }) {
+function Ledger({ data, save, saveStatus, userEmail, onSignOut }) {
   const [spendForm, setSpendForm] = useState({ categoryId: "", amount: "" });
   const [transferAmt, setTransferAmt] = useState("");
   const [granularity, setGranularity] = useState("week");
@@ -672,7 +672,10 @@ function Ledger({ data, save, userEmail, onSignOut }) {
     save(withSnapshot(next));
     setNewPaycheck({ date: todayStr(), amount: "", note: "", addToChecking: true });
   };
-  const removePaycheck = (id) => save({ ...data, income: data.income.filter((p) => p.id !== id) });
+  const removePaycheck = (id) => {
+    if (!window.confirm("Delete this paycheck entry?")) return;
+    save({ ...data, income: data.income.filter((p) => p.id !== id) });
+  };
 
   /* ---- spending ---- */
   const logSpend = () => {
@@ -991,8 +994,15 @@ function Ledger({ data, save, userEmail, onSignOut }) {
         </>
         )}
 
-        <div style={{ marginTop: 24, fontFamily: MONO, fontSize: 10.5, color: MUTE, textAlign: "center" }}>
-          Synced live with your household. <span onClick={resetToSeed} style={{ cursor: "pointer", textDecoration: "underline" }}>Reset to starting data</span>
+        {(saveStatus === "conflict" || saveStatus === "error") && (
+          <div style={{ marginTop: 16, fontFamily: MONO, fontSize: 11, color: BRICK, textAlign: "center" }}>
+            {saveStatus === "conflict"
+              ? "Someone else saved a change at the same moment, so your last edit didn't go through — reloaded with the latest data. Please try again."
+              : "Couldn't save your last change. Check your connection and try again."}
+          </div>
+        )}
+        <div style={{ marginTop: 12, fontFamily: MONO, fontSize: 10.5, color: MUTE, textAlign: "center" }}>
+          {saveStatus === "saving" ? "Saving…" : "Synced live with your household."} <span onClick={resetToSeed} style={{ cursor: "pointer", textDecoration: "underline" }}>Reset to starting data</span>
         </div>
       </div>
     </div>
