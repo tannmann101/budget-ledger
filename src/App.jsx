@@ -682,6 +682,7 @@ function Ledger({ data, save, userEmail, onSignOut }) {
   const [debtCorrect, setDebtCorrect] = useState({});
   const [showAllIncome, setShowAllIncome] = useState(false);
   const [showAllTxns, setShowAllTxns] = useState(false);
+  const [page, setPage] = useState("ledger");
   const [importMsg, setImportMsg] = useState("");
   const importInputRef = useRef(null);
 
@@ -877,6 +878,15 @@ function Ledger({ data, save, userEmail, onSignOut }) {
           <div style={{ fontFamily: MONO, fontSize: 11, color: TEAL, margin: "6px 0 0" }}>{importMsg}</div>
         )}
 
+        <div style={{ display: "flex", gap: 6, margin: "14px 0 4px" }}>
+          <Btn small color={page === "ledger" ? INK : MUTE} onClick={() => setPage("ledger")}>Ledger</Btn>
+          <Btn small color={page === "plan" ? INK : MUTE} onClick={() => setPage("plan")}>Plan</Btn>
+        </div>
+
+        {page === "plan" && <Plan data={data} save={save} />}
+
+        {page === "ledger" && (
+        <>
         {/* Overview */}
         <SectionTitle>Overview</SectionTitle>
         <Table>
@@ -1053,8 +1063,6 @@ function Ledger({ data, save, userEmail, onSignOut }) {
           <MonthlyBarChart data={monthlySummary} />
         )}
 
-        <Plan data={data} save={save} />
-
         {/* Recent transactions */}
         <SectionTitle note={`showing ${visibleTxns.length} of ${sortedTxns.length}`}>Recent Activity</SectionTitle>
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
@@ -1077,6 +1085,8 @@ function Ledger({ data, save, userEmail, onSignOut }) {
             ))}
           </tbody>
         </Table>
+        </>
+        )}
 
         <div style={{ marginTop: 24, fontFamily: MONO, fontSize: 10.5, color: MUTE, textAlign: "center" }}>
           Synced live with your household. <span onClick={resetToSeed} style={{ cursor: "pointer", textDecoration: "underline" }}>Reset to starting data</span>
