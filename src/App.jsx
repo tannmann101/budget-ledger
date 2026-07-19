@@ -25,18 +25,6 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 const monthStr = (d = new Date()) => d.toISOString().slice(0, 7);
 const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
 
-function getPaidRecord(bill, month) {
-  const list = bill.paidMonths || [];
-  for (const entry of list) {
-    if (typeof entry === "string") {
-      if (entry === month) return { month, amount: Number(bill.amount || 0), source: "checking" };
-    } else if (entry && entry.month === month) {
-      return entry;
-    }
-  }
-  return null;
-}
-
 const DEFAULT_CATEGORIES = [
   { id: "cat-gas-groceries", name: "Gas/Groceries", limit: 700, chargeDebtId: "debt-my-cc" },
   { id: "cat-rent", name: "Rent" },
@@ -683,8 +671,6 @@ export default function App() {
 }
 
 function Ledger({ data, save, userEmail, onSignOut }) {
-  const [newBill, setNewBill] = useState({ name: "", amount: "", day: "", status: "set" });
-  const [groceryAmt, setGroceryAmt] = useState("");
   const [spendForm, setSpendForm] = useState({ categoryId: "", amount: "" });
   const [transferAmt, setTransferAmt] = useState("");
   const [granularity, setGranularity] = useState("week");
@@ -692,7 +678,6 @@ function Ledger({ data, save, userEmail, onSignOut }) {
   const [newPaycheck, setNewPaycheck] = useState({ date: todayStr(), amount: "", note: "", addToChecking: true });
   const [newDebt, setNewDebt] = useState({ name: "", balance: "", rate: "", minPayment: "" });
   const [acctAmt, setAcctAmt] = useState({ checking: "", savings: "" });
-  const [billPay, setBillPay] = useState({});
   const [debtPay, setDebtPay] = useState({});
   const [debtCorrect, setDebtCorrect] = useState({});
   const [showAllIncome, setShowAllIncome] = useState(false);
@@ -704,11 +689,6 @@ function Ledger({ data, save, userEmail, onSignOut }) {
   const monthlySummary = useMemo(() => buildMonthlySummary(data), [data]);
 
   const currentMonth = monthStr();
-  const monthExpenses = data.expenses.filter((e) => e.month === currentMonth);
-  const totalBills = data.bills.reduce((s, b) => s + Number(b.amount || 0), 0);
-  const projectedBillsTotal = data.bills.filter((b) => b.status === "projected").reduce((s, b) => s + Number(b.amount || 0), 0);
-  const categorySpend = (catId) => monthExpenses.filter((e) => e.categoryId === catId).reduce((s, e) => s + Number(e.amount || 0), 0);
-  const totalCategoryLimits = data.categories.reduce((s, c) => s + Number(c.limit || 0), 0);
   const totalDebt = data.debts.reduce((s, d) => s + Number(d.balance || 0), 0);
   const netWorth = Number(data.checking) + Number(data.savings) - totalDebt;
 
@@ -724,7 +704,8 @@ function Ledger({ data, save, userEmail, onSignOut }) {
   const last8Checks = sortedIncome.slice(0, 8);
   const avgPerCheck = last8Checks.length ? last8Checks.reduce((s, p) => s + Number(p.amount || 0), 0) / last8Checks.length : 0;
   const visibleIncome = showAllIncome ? sortedIncome : last8Checks;
-  const avgMonthlySpend = totalBills + totalCategoryLimits;
+  const last90Spend = data.transactions.filter((t) => (t.type === "expense" || t.type === "bill") && inRange(t.date, 90));
+  const avgMonthlySpend = last90Spend.reduce((s, t) => s + Math.abs(Number(t.amount || 0)), 0) / 3;
   const spendRatio = avgMonthlyIncome > 0 ? avgMonthlySpend / avgMonthlyIncome : null;
 
   const sourceOptionsBase = [{ id: "checking", label: "Checking" }, ...data.debts.map((d) => ({ id: d.id, label: d.name }))];
@@ -765,64 +746,9 @@ function Ledger({ data, save, userEmail, onSignOut }) {
   };
   const removePaycheck = (id) => save({ ...data, income: data.income.filter((p) => p.id !== id) });
 
-  /* ---- bills ---- */
-  const addBill = () => {
-    if (!newBill.name || !newBill.amount) return;
-    save({ ...data, bills: [...data.bills, { id: uid(), name: newBill.name, amount: Number(newBill.amount), day: newBill.day, status: newBill.status, paidMonths: [] }] });
-    setNewBill({ name: "", amount: "", day: "", status: "set" });
-  };
-  const removeBill = (id) => save({ ...data, bills: data.bills.filter((b) => b.id !== id) });
-  const toggleBillStatus = (id) => save({ ...data, bills: data.bills.map((b) => b.id === id ? { ...b, status: b.status === "set" ? "projected" : "set" } : b) });
-  const payBill = (id) => {
-    const bill = data.bills.find((b) => b.id === id);
-    const cfg = billPay[id] || {};
-    const amount = Number(cfg.amount ?? bill.amount);
-    const source = cfg.source || "checking";
-    if (!amount) return;
-    let nextChecking = Number(data.checking);
-    let nextDebts = data.debts;
-    if (source === "checking") nextChecking -= amount;
-    else nextDebts = data.debts.map((d) => d.id === source ? { ...d, balance: Number(d.balance) + amount, totalCharged: (d.totalCharged || 0) + amount } : d);
-    const nextBills = data.bills.map((b) => b.id === id ? { ...b, paidMonths: [...(b.paidMonths || []).filter((e) => (typeof e === "string" ? e : e.month) !== currentMonth), { month: currentMonth, amount, source }] } : b);
-    let next = pushTxn({ ...data, bills: nextBills, debts: nextDebts, checking: nextChecking }, { type: "bill", description: bill.name, amount, account: sourceLabel(source, sourceOptionsBase) });
-    save(withSnapshot(next));
-  };
-  const undoBillPayment = (id) => {
-    const bill = data.bills.find((b) => b.id === id);
-    if (!bill) return;
-    const record = getPaidRecord(bill, currentMonth);
-    if (!record) return;
-    let nextChecking = Number(data.checking);
-    let nextDebts = data.debts;
-    if (record.source === "checking") nextChecking += Number(record.amount);
-    else nextDebts = data.debts.map((d) => d.id === record.source ? { ...d, balance: Math.max(0, Number(d.balance) - Number(record.amount)), totalCharged: Math.max(0, (d.totalCharged || 0) - Number(record.amount)) } : d);
-    const nextBills = data.bills.map((b) => b.id === id ? { ...b, paidMonths: (b.paidMonths || []).filter((e) => (typeof e === "string" ? e : e.month) !== currentMonth) } : b);
-    let next = pushTxn({ ...data, bills: nextBills, debts: nextDebts, checking: nextChecking }, { type: "correction", description: `Undo: ${bill.name}`, amount: -record.amount, account: sourceLabel(record.source, sourceOptionsBase) });
-    save(withSnapshot(next));
-  };
-
   /* ---- spending ---- */
-  const groceryCategory = data.categories.find((c) => c.limit);
-  const regularCategories = data.categories.filter((c) => !c.limit);
-  const grocerySpent = groceryCategory ? categorySpend(groceryCategory.id) : 0;
-  const groceryRemaining = (groceryCategory?.limit || 0) - grocerySpent;
-  const fixCategories = () => save({ ...data, categories: DEFAULT_CATEGORIES });
-
-  const logGroceryExpense = () => {
-    const amt = Number(groceryAmt);
-    if (!amt || !groceryCategory) return;
-    const nextDebts = data.debts.map((d) => d.id === groceryCategory.chargeDebtId
-      ? { ...d, balance: Number(d.balance) + amt, totalCharged: (d.totalCharged || 0) + amt }
-      : d);
-    let next = pushTxn(
-      { ...data, expenses: [...data.expenses, { id: uid(), categoryId: groceryCategory.id, amount: amt, month: currentMonth }], debts: nextDebts },
-      { type: "expense", description: groceryCategory.name, amount: amt, account: debtNameById(groceryCategory.chargeDebtId) }
-    );
-    save(withSnapshot(next));
-    setGroceryAmt("");
-  };
   const logSpend = () => {
-    const catId = spendForm.categoryId || regularCategories[0]?.id;
+    const catId = spendForm.categoryId || data.categories[0]?.id;
     const amt = Number(spendForm.amount);
     if (!catId || !amt) return;
     const cat = data.categories.find((c) => c.id === catId);
@@ -1075,99 +1001,17 @@ function Ledger({ data, save, userEmail, onSignOut }) {
           </tbody>
         </Table>
 
-        {/* Bills */}
-        <SectionTitle note={`${data.bills.filter((b) => getPaidRecord(b, currentMonth)).length}/${data.bills.length} paid this month${projectedBillsTotal > 0 ? ` · ${fmt(projectedBillsTotal)} projected` : ""}`}>Bills</SectionTitle>
-        <Table>
-          <thead><tr><Th>Bill</Th><Th>Due</Th><Th align="right">Amount</Th><Th>Status</Th><Th>Paid</Th><Th> </Th></tr></thead>
-          <tbody>
-            {data.bills.map((b) => {
-              const record = getPaidRecord(b, currentMonth);
-              const cfg = billPay[b.id] || { amount: String(b.amount || ""), source: "checking" };
-              return (
-                <React.Fragment key={b.id}>
-                  <tr>
-                    <Td>{b.name}</Td>
-                    <Td muted mono>{b.day || "—"}</Td>
-                    <Td align="right" mono>{fmt(Number(b.amount))}</Td>
-                    <Td>
-                      <span onClick={() => toggleBillStatus(b.id)} style={{ cursor: "pointer", fontFamily: MONO, fontSize: 10.5, color: b.status === "projected" ? GOLD : MUTE, textTransform: "uppercase" }}>
-                        {b.status === "projected" ? "projected" : "set"}
-                      </span>
-                    </Td>
-                    <Td>{record ? <span style={{ color: TEAL, fontFamily: MONO, fontSize: 11.5 }}>✓ paid</span> : <span style={{ color: MUTE, fontFamily: MONO, fontSize: 11.5 }}>unpaid</span>}</Td>
-                    <Td align="right"><Btn small color={BRICK} onClick={() => removeBill(b.id)}>del</Btn></Td>
-                  </tr>
-                  <tr>
-                    <Td colSpan={6} bg={HEAD_BG}>
-                      {record ? (
-                        <div style={{ display: "flex", gap: 10, alignItems: "center", fontFamily: MONO, fontSize: 11.5, color: MUTE }}>
-                          Paid {fmt(record.amount)} via {sourceLabel(record.source, sourceOptionsBase)}
-                          <Btn small onClick={() => undoBillPayment(b.id)}>undo</Btn>
-                        </div>
-                      ) : (
-                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                          <Input value={cfg.amount} onChange={(v) => setBillPay({ ...billPay, [b.id]: { ...cfg, amount: v } })} placeholder="Amount" type="number" width={90} />
-                          <Select value={cfg.source} onChange={(v) => setBillPay({ ...billPay, [b.id]: { ...cfg, source: v } })} options={sourceOptionsBase} width={170} />
-                          <Btn small onClick={() => payBill(b.id)}>Mark Paid</Btn>
-                        </div>
-                      )}
-                    </Td>
-                  </tr>
-                </React.Fragment>
-              );
-            })}
-            <tr>
-              <Td><Input value={newBill.name} onChange={(v) => setNewBill({ ...newBill, name: v })} placeholder="New bill name" width={150} /></Td>
-              <Td><Input value={newBill.day} onChange={(v) => setNewBill({ ...newBill, day: v })} placeholder="Due day" width={70} /></Td>
-              <Td align="right"><Input value={newBill.amount} onChange={(v) => setNewBill({ ...newBill, amount: v })} placeholder="0.00" type="number" width={80} /></Td>
-              <Td><Btn small color={newBill.status === "projected" ? GOLD : MUTE} onClick={() => setNewBill({ ...newBill, status: newBill.status === "set" ? "projected" : "set" })}>{newBill.status}</Btn></Td>
-              <Td></Td>
-              <Td align="right"><Btn small onClick={addBill}>add</Btn></Td>
-            </tr>
-          </tbody>
-        </Table>
-
-        {/* Gas/Groceries budget */}
-        {groceryCategory && (
-          <>
-            <SectionTitle note={`${fmt(grocerySpent)} of ${fmt(groceryCategory.limit)} this month`}>Gas / Groceries Budget</SectionTitle>
-            <Table>
-              <thead><tr><Th align="right">Limit</Th><Th align="right">Spent</Th><Th align="right">Remaining</Th><Th align="right">Log a charge</Th></tr></thead>
-              <tbody>
-                <tr>
-                  <Td align="right" mono>{fmt(groceryCategory.limit)}</Td>
-                  <Td align="right" mono style={{ color: groceryRemaining < 0 ? BRICK : INK }}>{fmt(grocerySpent)}</Td>
-                  <Td align="right" mono muted>{fmt(groceryRemaining)}</Td>
-                  <Td align="right">
-                    <Input value={groceryAmt} onChange={setGroceryAmt} placeholder="0.00" type="number" width={80} onEnter={logGroceryExpense} />
-                    {" "}<Btn small onClick={logGroceryExpense}>log</Btn>
-                  </Td>
-                </tr>
-              </tbody>
-            </Table>
-            <p style={{ fontFamily: MONO, fontSize: 11, color: MUTE, margin: "6px 0 0" }}>
-              Charged to {debtNameById(groceryCategory.chargeDebtId)} — doesn't touch checking. Pay down the card in Debt Accounts above.
-            </p>
-          </>
-        )}
-
         {/* Log a spend */}
         <SectionTitle>Log a Spend</SectionTitle>
-        {regularCategories.length === 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, fontFamily: MONO, fontSize: 12, color: BRICK }}>
-            Categories are out of date on this ledger.
-            <Btn small color={BRICK} onClick={fixCategories}>Fix categories</Btn>
-          </div>
-        )}
         <Table>
           <thead><tr><Th>Category</Th><Th align="right">Amount</Th><Th align="right"> </Th></tr></thead>
           <tbody>
             <tr>
               <Td>
                 <Select
-                  value={spendForm.categoryId || regularCategories[0]?.id}
+                  value={spendForm.categoryId || data.categories[0]?.id}
                   onChange={(v) => setSpendForm({ ...spendForm, categoryId: v })}
-                  options={regularCategories.map((c) => ({ id: c.id, label: c.name }))}
+                  options={data.categories.map((c) => ({ id: c.id, label: c.name }))}
                   width={180}
                 />
               </Td>
