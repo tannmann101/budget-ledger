@@ -9,7 +9,9 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "emulators": "firebase emulators:start --only auth,firestore --project demo-budget-ledger",
-    "test:rules": "node scripts/test-rules.mjs"
+    "test:rules": "node scripts/test-rules.mjs",
+    "test:math": "node --test scripts/test-math.mjs",
+    "test": "npm run test:math && npm run test:rules"
   },
   "dependencies": {
     "firebase": "^12.15.0",
