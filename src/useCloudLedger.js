@@ -7,7 +7,7 @@ const LEDGER_DOC = doc(db, "ledger", "shared");
 // New fields added to the data model later will fall back to these
 // defaults for documents written before the field existed.
 export const DEFAULT_DATA = {
-  income: [], checking: 0, savings: 0, debts: [], bills: [], categories: [], expenses: [], transactions: [], history: [],
+  income: [], checking: 0, savings: 0, debts: [], bills: [], categories: [], expenses: [], transactions: [], history: [], assumptions: {},
 };
 
 export function useCloudLedger(enabled) {
