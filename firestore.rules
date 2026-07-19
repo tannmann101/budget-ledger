@@ -9,8 +9,29 @@ service cloud.firestore {
         ];
     }
 
+    // Guards against a client bug (or a stray manual edit) corrupting the one
+    // shared document everyone reads and writes -- checks each core field's
+    // *type* when required, not every nested item's shape, so the schema can
+    // still evolve (new fields, renamed assumption keys) without a rules
+    // deploy blocking legitimate writes.
+    function isValidLedger(d) {
+      return d.checking is number &&
+        d.savings is number &&
+        d.income is list &&
+        d.debts is list &&
+        d.bills is list &&
+        d.categories is list &&
+        d.expenses is list &&
+        d.transactions is list &&
+        d.history is list &&
+        (!('assumptions' in d) || d.assumptions is map) &&
+        (!('_rev' in d) || d._rev is number);
+    }
+
     match /ledger/{docId} {
-      allow read, write: if isAllowed();
+      allow read: if isAllowed();
+      allow create, update: if isAllowed() && isValidLedger(request.resource.data);
+      allow delete: if false;
     }
   }
 }
