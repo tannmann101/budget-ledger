@@ -10,6 +10,7 @@ import { DEFAULT_ASSUMPTIONS } from "./simulationEngine";
 import { buildReport } from "./report";
 import { MONO, SANS, BG, PAGE, INK, MUTE, LINE, TEAL, BRICK, GOLD, RADIUS_SM } from "./theme";
 import { GlobalStyle, Table, Th, Td, SectionTitle, Btn, Input, Select, TabBar, Card } from "./ui";
+import { IconLedger, IconDebts, IconPlan } from "./icons";
 
 const fmt = (n) =>
   (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -806,7 +807,11 @@ function Ledger({ data, commit, removeItem, replaceAll, saveStatus, userEmail, o
           <TabBar
             active={page}
             onChange={setPage}
-            tabs={[{ id: "ledger", label: "Ledger" }, { id: "debts", label: "Debts" }, { id: "plan", label: "Plan" }]}
+            tabs={[
+              { id: "ledger", label: "Ledger", icon: <IconLedger /> },
+              { id: "debts", label: "Debts", icon: <IconDebts /> },
+              { id: "plan", label: "Plan", icon: <IconPlan /> },
+            ]}
           />
         </div>
 
