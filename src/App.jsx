@@ -5,12 +5,13 @@ import { useCloudLedger } from "./useCloudLedger";
 import AuthGate, { useAuthUser, Centered } from "./AuthGate";
 import Plan from "./Plan";
 import Debts from "./Debts";
+import Dashboard from "./Dashboard";
 import { accrueDebt } from "./debtAccrual";
 import { DEFAULT_ASSUMPTIONS } from "./simulationEngine";
 import { buildReport } from "./report";
 import { MONO, SANS, BG, PAGE, INK, MUTE, LINE, TEAL, BRICK, GOLD, RADIUS_SM } from "./theme";
 import { GlobalStyle, Table, Th, Td, SectionTitle, Btn, Input, Select, TabBar, Card } from "./ui";
-import { IconLedger, IconDebts, IconPlan } from "./icons";
+import { IconLedger, IconDebts, IconPlan, IconDashboard } from "./icons";
 
 const fmt = (n) =>
   (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -18,6 +19,20 @@ const fmtShort = (n) => (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefi
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const monthStr = (d = new Date()) => d.toISOString().slice(0, 7);
 const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
+
+const DEFAULT_STATIC_BILLS = [
+  { id: "static-gas-grocery", name: "Gas/Grocery Budget", amount: 700, day: "around the 1st" },
+  { id: "static-amazon", name: "Amazon", amount: 14.99, day: "12th" },
+  { id: "static-rcc-min", name: "Rochelle Credit Card Min", amount: 350, day: "around 15th" },
+  { id: "static-car-insurance", name: "Car Insurance", amount: 82, day: "29th" },
+  { id: "static-life-insurance", name: "Life Insurance", amount: 25, day: "17th" },
+  { id: "static-phone", name: "Phone", amount: 128, day: "15th" },
+  { id: "static-trash-sewer", name: "Trash/Sewer", amount: 60, day: "around 15th" },
+  { id: "static-energy", name: "Energy", amount: 100, day: "around 22nd" },
+  { id: "static-consolidation-loan", name: "Consolidation Loan", amount: 673.09, day: "24th" },
+  { id: "static-internet", name: "Internet", amount: 80, day: "9th" },
+  { id: "static-bestbuy-cc", name: "Best Buy Credit Card", amount: 50, day: "1st" },
+];
 
 const DEFAULT_CATEGORIES = [
   { id: "cat-gas-groceries", name: "Gas/Groceries", limit: 700, chargeDebtId: "debt-my-cc" },
@@ -84,6 +99,7 @@ function buildSeedData() {
       { id: "bill-internet", name: "Internet", amount: 0, day: "", status: "projected", paidMonths: [] },
       { id: "bill-utility", name: "Water/Sewer/Trash (2BR flat rate)", amount: 60, day: "", status: "projected", paidMonths: [] },
     ],
+    staticBills: DEFAULT_STATIC_BILLS,
     categories: DEFAULT_CATEGORIES,
     expenses: [
       { id: "hist-lr2yzol", categoryId: "cat-allowance", amount: 250, month: "2026-06" },
@@ -811,12 +827,14 @@ function Ledger({ data, commit, removeItem, replaceAll, saveStatus, userEmail, o
               { id: "ledger", label: "Ledger", icon: <IconLedger /> },
               { id: "debts", label: "Debts", icon: <IconDebts /> },
               { id: "plan", label: "Plan", icon: <IconPlan /> },
+              { id: "dashboard", label: "Dashboard", icon: <IconDashboard /> },
             ]}
           />
         </div>
 
         {page === "debts" && <Debts data={data} commit={commit} />}
         {page === "plan" && <Plan data={data} commit={commit} whatIf={whatIf} setWhatIf={setWhatIf} />}
+        {page === "dashboard" && <Dashboard data={data} commit={commit} />}
 
         {page === "ledger" && (
         <>

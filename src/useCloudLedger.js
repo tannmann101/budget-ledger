@@ -20,9 +20,9 @@ const LOAD_LIMITS = { income: 500, transactions: 500, expenses: 500, history: 18
 const BATCH_SIZE = 400; // Firestore's batch/transaction op cap is 500; leave headroom
 
 export const DEFAULT_DATA = {
-  income: [], checking: 0, savings: 0, debts: [], bills: [], categories: [], expenses: [], transactions: [], history: [], assumptions: {},
+  income: [], checking: 0, savings: 0, debts: [], bills: [], staticBills: [], categories: [], expenses: [], transactions: [], history: [], assumptions: {},
 };
-const DEFAULT_MAIN = { checking: 0, savings: 0, debts: [], bills: [], categories: [], assumptions: {} };
+const DEFAULT_MAIN = { checking: 0, savings: 0, debts: [], bills: [], staticBills: [], categories: [], assumptions: {} };
 
 const subCollectionRef = (name) => collection(db, "ledger", "shared", name);
 const subDocRef = (name, id) => doc(db, "ledger", "shared", name, id);
