@@ -2,8 +2,8 @@ import { useState, useMemo } from "react";
 import { accrueDebt } from "./debtAccrual";
 import { simulate, DEFAULT_ASSUMPTIONS, payBreakdown } from "./simulationEngine";
 import { liveFixedBills } from "./Plan";
-import { MONO, INK, MUTE, LINE, TEAL, GOLD, BRICK, RADIUS_SM } from "./theme";
-import { Table, Th, Td, Btn, Input, SectionTitle, Card, Note } from "./ui";
+import { MONO, INK, MUTE, LINE, HEAD_BG, TEAL, GOLD, BRICK, RADIUS_SM } from "./theme";
+import { Table, Th, Td, Btn, Input, SectionTitle, Card, Note, StatRow } from "./ui";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -111,10 +111,10 @@ function TrendChart({ data, activeSeries }) {
         )}
       </svg>
       {hover !== null && (
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontFamily: MONO, fontSize: 11.5, color: INK, paddingLeft: 4 }}>
+        <Card tint={HEAD_BG} style={{ marginTop: 8, display: "flex", gap: 12, flexWrap: "wrap", fontFamily: MONO, fontSize: 11.5, color: INK, padding: "8px 12px" }}>
           <span style={{ color: MUTE }}>{data[hover].label}</span>
           {activeSeries.map((s) => <span key={s.key} style={{ color: s.color }}>{s.label} {fmt(data[hover][s.key])}</span>)}
-        </div>
+        </Card>
       )}
     </div>
   );
@@ -168,8 +168,15 @@ function buildCategoryTrend(data, granularity, categories) {
   }
   return [...buckets.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
+// A curated cycle rather than raw HSL rotation -- every hue sits at the same
+// muted saturation/lightness as the theme's own TEAL/BRICK/GOLD, so any mix
+// of active categories still reads as one coherent palette instead of a
+// clashing rainbow.
+const CATEGORY_PALETTE = [
+  TEAL, BRICK, GOLD, "#3A5A8C", "#7A3B69", "#5B6B2E", "#8C4B2E", "#2E6B6B", "#6B4423", "#4A5568",
+];
 function categoryColor(index) {
-  return `hsl(${(index * 47) % 360}, 45%, 40%)`;
+  return CATEGORY_PALETTE[index % CATEGORY_PALETTE.length];
 }
 function topCategoriesByRecentSpend(data, categories, n) {
   const totals = new Map();
@@ -218,7 +225,7 @@ function CategoryTrendChart({ data, categories }) {
                 if (v <= 0) return null;
                 const h = (v / max) * innerH;
                 yCursor -= h;
-                return <rect key={c.id} x={x(i) - barW / 2} y={yCursor} width={barW} height={h} fill={c.color} />;
+                return <rect key={c.id} x={x(i) - barW / 2} y={yCursor} width={barW} height={h} rx={2} fill={c.color} />;
               })}
               <rect x={x(i) - groupW / 2} y={PAD_T} width={groupW} height={innerH} fill="transparent" />
               <text x={x(i)} y={H - 14} textAnchor="middle" fontFamily={MONO} fontSize="9.5" fill={MUTE}>{d.label}</text>
@@ -227,12 +234,12 @@ function CategoryTrendChart({ data, categories }) {
         })}
       </svg>
       {hover !== null && (
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontFamily: MONO, fontSize: 11.5, color: INK, paddingLeft: 4 }}>
+        <Card tint={HEAD_BG} style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap", fontFamily: MONO, fontSize: 11.5, color: INK, padding: "8px 12px" }}>
           <span style={{ color: MUTE }}>{data[hover].label}</span>
           {categories.filter((c) => data[hover][c.id]).map((c) => (
             <span key={c.id} style={{ color: c.color }}>{c.name} {fmt(data[hover][c.id])}</span>
           ))}
-        </div>
+        </Card>
       )}
     </div>
   );
@@ -287,19 +294,19 @@ function MonthlyBarChart({ data }) {
         })}
         {data.map((d, i) => (
           <g key={d.month} onMouseEnter={() => setHover(i)}>
-            <rect x={x(i) - barW - 2} y={y(d.income)} width={barW} height={Math.max(barH(d.income), 0)} fill={TEAL} />
-            <rect x={x(i) + 2} y={y(d.spending)} width={barW} height={Math.max(barH(d.spending), 0)} fill={BRICK} />
+            <rect x={x(i) - barW - 2} y={y(d.income)} width={barW} height={Math.max(barH(d.income), 0)} rx={2} fill={TEAL} />
+            <rect x={x(i) + 2} y={y(d.spending)} width={barW} height={Math.max(barH(d.spending), 0)} rx={2} fill={BRICK} />
             <rect x={x(i) - groupW / 2} y={PAD_T} width={groupW} height={innerH} fill="transparent" />
             <text x={x(i)} y={H - 14} textAnchor="middle" fontFamily={MONO} fontSize="9.5" fill={MUTE}>{monthLabel(d.month)}</text>
           </g>
         ))}
       </svg>
       {hover !== null && (
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontFamily: MONO, fontSize: 11.5, color: INK, paddingLeft: 4 }}>
+        <Card tint={HEAD_BG} style={{ marginTop: 8, display: "flex", gap: 12, flexWrap: "wrap", fontFamily: MONO, fontSize: 11.5, color: INK, padding: "8px 12px" }}>
           <span style={{ color: MUTE }}>{monthLabel(data[hover].month)}</span>
           <span style={{ color: TEAL }}>Income {fmt(data[hover].income)}</span>
           <span style={{ color: BRICK }}>Spending {fmt(data[hover].spending)}</span>
-        </div>
+        </Card>
       )}
     </div>
   );
@@ -368,17 +375,25 @@ export default function Dashboard({ data, commit }) {
   return (
     <>
       <SectionTitle>Current Balances</SectionTitle>
-      <Table>
-        <thead><tr>
-          <Th align="right">Checking</Th><Th align="right">Savings</Th><Th align="right">Total Debt</Th><Th align="right">Net Worth</Th>
-        </tr></thead>
-        <tbody><tr>
-          <Td align="right" mono>{fmt(Number(data.checking))}</Td>
-          <Td align="right" mono>{fmt(Number(data.savings))}</Td>
-          <Td align="right" mono>{fmt(totalDebt)}</Td>
-          <Td align="right" mono>{fmt(netWorth)}</Td>
-        </tr></tbody>
-      </Table>
+      <StatRow stats={[
+        { label: "Checking", value: fmt(Number(data.checking)), color: TEAL },
+        { label: "Savings", value: fmt(Number(data.savings)), color: TEAL },
+        { label: "Total Debt", value: fmt(totalDebt), color: BRICK },
+        { label: "Net Worth", value: fmt(netWorth), color: netWorth < 0 ? BRICK : TEAL },
+      ]} />
+
+      {/* Plan projection */}
+      <SectionTitle note="see the Plan page for the full model, what-if scenarios, and pay breakdown">Current Plan Projection</SectionTitle>
+      <StatRow stats={[
+        { label: "Debt-free", value: plan.payoffPeriod ? fmtDate(plan.payoffDate) : "beyond model horizon" },
+        { label: "Now — Monthly Income", value: fmt(nowMonthlyIncome), color: TEAL },
+        { label: "Total Interest", value: fmt(plan.totalInterest), color: BRICK },
+      ]} />
+      <Note>
+        "Now — Monthly Income" is today's actual pay rate, on-call schedule, and cert level, with no assumed future
+        raises — the same "Now" row shown on the Plan page's Per Month pay calculation. The debt-free date uses your
+        saved plan's assumptions, today's real (interest-accrued) debt balances, and the live Static Bills total above.
+      </Note>
 
       {/* Balance & net worth trend */}
       <SectionTitle>Balance &amp; Net Worth Trend</SectionTitle>
@@ -483,21 +498,6 @@ export default function Dashboard({ data, commit }) {
         </tbody>
       </Table>
 
-      {/* Plan projection */}
-      <SectionTitle note="see the Plan page for the full model, what-if scenarios, and pay breakdown">Current Plan Projection</SectionTitle>
-      <Table>
-        <thead><tr><Th align="right">Debt-free</Th><Th align="right">Now — Monthly Income</Th><Th align="right">Total Interest</Th></tr></thead>
-        <tbody><tr>
-          <Td align="right" mono>{plan.payoffPeriod ? fmtDate(plan.payoffDate) : "beyond model horizon"}</Td>
-          <Td align="right" mono style={{ color: TEAL }}>{fmt(nowMonthlyIncome)}</Td>
-          <Td align="right" mono style={{ color: BRICK }}>{fmt(plan.totalInterest)}</Td>
-        </tr></tbody>
-      </Table>
-      <Note>
-        "Now — Monthly Income" is today's actual pay rate, on-call schedule, and cert level, with no assumed future
-        raises — the same "Now" row shown on the Plan page's Per Month pay calculation. The debt-free date uses your
-        saved plan's assumptions, today's real (interest-accrued) debt balances, and the live Static Bills total above.
-      </Note>
     </>
   );
 }

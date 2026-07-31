@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { simulate, DEFAULT_ASSUMPTIONS, payBreakdown } from "./simulationEngine";
 import { accrueDebt } from "./debtAccrual";
 import { MONO, BG, INK, MUTE, LINE, HEAD_BG, TEAL, BRICK, GOLD } from "./theme";
-import { Table, Th, Td, Btn, Input, SectionTitle, TabBar, Card, Note } from "./ui";
+import { Table, Th, Td, Btn, Input, SectionTitle, TabBar, Card, Note, StatRow } from "./ui";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 // Fixed bills is no longer a manually-typed, driftable assumption -- it's
@@ -199,16 +199,11 @@ export default function Plan({ data, commit, whatIf, setWhatIf }) {
   return (
     <>
       <SectionTitle note={plan.payoffPeriod ? `debt-free ${fmtDate(plan.payoffDate)}` : "beyond model horizon"}>Current Plan (saved)</SectionTitle>
-      <Table>
-        <thead><tr><Th align="right">Debt-free</Th><Th align="right">Total interest</Th><Th align="right">Savings at payoff</Th></tr></thead>
-        <tbody>
-          <tr>
-            <Td align="right" mono>{plan.payoffPeriod ? fmtDate(plan.payoffDate) : "—"}</Td>
-            <Td align="right" mono style={{ color: BRICK }}>{fmt(plan.totalInterest)}</Td>
-            <Td align="right" mono style={{ color: TEAL }}>{fmt(plan.finalSavings)}</Td>
-          </tr>
-        </tbody>
-      </Table>
+      <StatRow stats={[
+        { label: "Debt-free", value: plan.payoffPeriod ? fmtDate(plan.payoffDate) : "—" },
+        { label: "Total Interest", value: fmt(plan.totalInterest), color: BRICK },
+        { label: "Savings at Payoff", value: fmt(plan.finalSavings), color: TEAL },
+      ]} />
       <Note>
         Savings barely moves while debt is outstanding — the avalanche method sends nearly every surplus dollar
         at the highest-rate debt first, so savings mostly only grows from the savings-share of periodic cert

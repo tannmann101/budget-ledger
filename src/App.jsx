@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { signOut } from "firebase/auth";
 import { auth } from "./firebase";
 import { useCloudLedger } from "./useCloudLedger";
@@ -10,7 +10,7 @@ import { accrueDebt } from "./debtAccrual";
 import { DEFAULT_ASSUMPTIONS } from "./simulationEngine";
 import { buildReport } from "./report";
 import { MONO, SANS, PAGE, INK, MUTE, LINE, TEAL, BRICK, GOLD } from "./theme";
-import { GlobalStyle, Table, Th, Td, SectionTitle, Btn, Input, Select, TabBar } from "./ui";
+import { GlobalStyle, Table, Th, Td, SectionTitle, Btn, Input, Select, TabBar, StatRow } from "./ui";
 import { IconLedger, IconDebts, IconPlan, IconDashboard } from "./icons";
 
 const fmt = (n) =>
@@ -411,7 +411,7 @@ function historyEntry(nextData) {
 
 export default function App() {
   const user = useAuthUser();
-  const { data, status, saveStatus, commit, removeItem, replaceAll } = useCloudLedger(!!user);
+  const { data, status, saveStatus, commit, replaceAll } = useCloudLedger(!!user);
 
   return (
     <AuthGate user={user} forbidden={status === "forbidden"}>
@@ -431,18 +431,17 @@ export default function App() {
         </Centered>
       )}
       {status === "ready" && data !== null && (
-        <Ledger data={data} commit={commit} removeItem={removeItem} replaceAll={replaceAll} saveStatus={saveStatus} userEmail={user?.email} onSignOut={() => signOut(auth)} />
+        <Ledger data={data} commit={commit} replaceAll={replaceAll} saveStatus={saveStatus} userEmail={user?.email} onSignOut={() => signOut(auth)} />
       )}
     </AuthGate>
   );
 }
 
-function Ledger({ data, commit, removeItem, replaceAll, saveStatus, userEmail, onSignOut }) {
+function Ledger({ data, commit, replaceAll, saveStatus, userEmail, onSignOut }) {
   const [spendForm, setSpendForm] = useState({ categoryId: "", amount: "" });
   const [transferAmt, setTransferAmt] = useState("");
   const [newPaycheck, setNewPaycheck] = useState({ date: todayStr(), amount: "", note: "", addToChecking: true });
   const [acctAmt, setAcctAmt] = useState({ checking: "", savings: "" });
-  const [showAllIncome, setShowAllIncome] = useState(false);
   const [showAllTxns, setShowAllTxns] = useState(false);
   const [logExpanded, setLogExpanded] = useState(false);
   const [page, setPage] = useState("dashboard");
@@ -453,18 +452,9 @@ function Ledger({ data, commit, removeItem, replaceAll, saveStatus, userEmail, o
   const totalDebt = data.debts.reduce((s, d) => s + accrueDebt(d, todayStr()).balance, 0);
   const netWorth = Number(data.checking) + Number(data.savings) - totalDebt;
 
-  const now = new Date();
-  const q = Math.floor(now.getMonth() / 3);
   const inRange = (dateStr, days) => new Date(dateStr) >= daysAgo(days);
-  const incomeThisMonth = data.income.filter((p) => p.date.slice(0, 7) === currentMonth).reduce((s, p) => s + Number(p.amount || 0), 0);
-  const incomeThisQuarter = data.income.filter((p) => { const d = new Date(p.date); return d.getFullYear() === now.getFullYear() && Math.floor(d.getMonth() / 3) === q; }).reduce((s, p) => s + Number(p.amount || 0), 0);
-  const incomeThisYear = data.income.filter((p) => p.date.slice(0, 4) === String(now.getFullYear())).reduce((s, p) => s + Number(p.amount || 0), 0);
   const last90 = data.income.filter((p) => inRange(p.date, 90));
   const avgMonthlyIncome = last90.reduce((s, p) => s + Number(p.amount || 0), 0) / 3;
-  const sortedIncome = [...data.income].sort((a, b) => b.date.localeCompare(a.date));
-  const last8Checks = sortedIncome.slice(0, 8);
-  const avgPerCheck = last8Checks.length ? last8Checks.reduce((s, p) => s + Number(p.amount || 0), 0) / last8Checks.length : 0;
-  const visibleIncome = showAllIncome ? sortedIncome : last8Checks;
   const last90Spend = data.transactions.filter((t) => (t.type === "expense" || t.type === "bill" || (t.type === "debt-payment" && t.account === "Checking")) && inRange(t.date, 90));
   const avgMonthlySpend = last90Spend.reduce((s, t) => s + Math.abs(Number(t.amount || 0)), 0) / 3;
   const spendRatio = avgMonthlyIncome > 0 ? avgMonthlySpend / avgMonthlyIncome : null;
@@ -517,10 +507,6 @@ function Ledger({ data, commit, removeItem, replaceAll, saveStatus, userEmail, o
       },
     });
     setNewPaycheck({ date: todayStr(), amount: "", note: "", addToChecking: true });
-  };
-  const removePaycheck = (id) => {
-    if (!window.confirm("Delete this paycheck entry?")) return;
-    removeItem("income", id);
   };
 
   /* ---- spending ---- */
@@ -604,40 +590,41 @@ function Ledger({ data, commit, removeItem, replaceAll, saveStatus, userEmail, o
         <>
         {/* Overview */}
         <SectionTitle>Overview</SectionTitle>
+        <StatRow stats={[
+          { label: "Checking", value: fmt(Number(data.checking)), color: TEAL },
+          { label: "Savings", value: fmt(Number(data.savings)), color: TEAL },
+          { label: "Total Debt", value: fmt(totalDebt), color: BRICK },
+          { label: "Net Worth", value: fmt(netWorth), color: netWorth < 0 ? BRICK : TEAL },
+          { label: "Avg Mo. Income", value: fmt(avgMonthlyIncome) },
+          { label: "Avg Mo. Spend", value: fmt(avgMonthlySpend) },
+          { label: "Spend / Income", value: spendRatio === null ? "—" : `${Math.round(spendRatio * 100)}%` },
+        ]} />
+
+        {/* Log a spend */}
+        <SectionTitle>Log a Spend</SectionTitle>
         <Table>
-          <thead><tr>
-            <Th align="right">Checking</Th><Th align="right">Savings</Th><Th align="right">Total Debt</Th>
-            <Th align="right">Net Worth</Th><Th align="right">Avg Mo. Income</Th><Th align="right">Avg Mo. Spend</Th><Th align="right">Spend / Income</Th>
-          </tr></thead>
-          <tbody><tr>
-            <Td align="right" mono>{fmt(Number(data.checking))}</Td>
-            <Td align="right" mono>{fmt(Number(data.savings))}</Td>
-            <Td align="right" mono>{fmt(totalDebt)}</Td>
-            <Td align="right" mono>{fmt(netWorth)}</Td>
-            <Td align="right" mono>{fmt(avgMonthlyIncome)}</Td>
-            <Td align="right" mono>{fmt(avgMonthlySpend)}</Td>
-            <Td align="right" mono>{spendRatio === null ? "—" : `${Math.round(spendRatio * 100)}%`}</Td>
-          </tr></tbody>
+          <thead><tr><Th>Category</Th><Th align="right">Amount</Th><Th align="right"> </Th></tr></thead>
+          <tbody>
+            <tr>
+              <Td>
+                <Select
+                  value={spendForm.categoryId || data.categories[0]?.id}
+                  onChange={(v) => setSpendForm({ ...spendForm, categoryId: v })}
+                  options={data.categories.map((c) => ({ id: c.id, label: c.name }))}
+                  width={180}
+                />
+              </Td>
+              <Td align="right"><Input value={spendForm.amount} onChange={(v) => setSpendForm({ ...spendForm, amount: v })} placeholder="0.00" type="number" width={90} onEnter={logSpend} /></Td>
+              <Td align="right"><Btn small onClick={logSpend}>log</Btn></Td>
+            </tr>
+          </tbody>
         </Table>
 
-        {/* Income */}
-        <SectionTitle note={`This mo. ${fmt(incomeThisMonth)} · Qtr ${fmt(incomeThisQuarter)} · Year ${fmt(incomeThisYear)} · Avg/check ${fmt(avgPerCheck)}`}>Income</SectionTitle>
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-          <Btn small color={MUTE} onClick={() => setShowAllIncome((v) => !v)}>
-            {showAllIncome ? "show recent 8" : `show all ${sortedIncome.length}`}
-          </Btn>
-        </div>
+        {/* Log a paycheck */}
+        <SectionTitle>Log a Paycheck</SectionTitle>
         <Table>
           <thead><tr><Th>Date</Th><Th>Note</Th><Th align="right">Amount</Th><Th align="right"> </Th></tr></thead>
           <tbody>
-            {visibleIncome.map((p) => (
-              <tr key={p.id}>
-                <Td mono>{p.date}</Td>
-                <Td muted>{p.note || "—"}</Td>
-                <Td align="right" mono>{fmt(Number(p.amount))}</Td>
-                <Td align="right"><Btn small color={BRICK} onClick={() => removePaycheck(p.id)}>del</Btn></Td>
-              </tr>
-            ))}
             <tr>
               <Td><Input value={newPaycheck.date} onChange={(v) => setNewPaycheck({ ...newPaycheck, date: v })} placeholder="YYYY-MM-DD" width={100} /></Td>
               <Td><Input value={newPaycheck.note} onChange={(v) => setNewPaycheck({ ...newPaycheck, note: v })} placeholder="OT, on-call…" width={140} /></Td>
@@ -673,26 +660,6 @@ function Ledger({ data, commit, removeItem, replaceAll, saveStatus, userEmail, o
               <Td colSpan={2} muted>Transfer</Td>
               <Td align="right"><Input value={transferAmt} onChange={setTransferAmt} placeholder="0.00" type="number" width={90} /></Td>
               <Td align="right"><Btn small color={GOLD} onClick={() => doTransfer("toSavings")}>Chk → Sav</Btn> <Btn small onClick={() => doTransfer("toChecking")}>Sav → Chk</Btn></Td>
-            </tr>
-          </tbody>
-        </Table>
-
-        {/* Log a spend */}
-        <SectionTitle>Log a Spend</SectionTitle>
-        <Table>
-          <thead><tr><Th>Category</Th><Th align="right">Amount</Th><Th align="right"> </Th></tr></thead>
-          <tbody>
-            <tr>
-              <Td>
-                <Select
-                  value={spendForm.categoryId || data.categories[0]?.id}
-                  onChange={(v) => setSpendForm({ ...spendForm, categoryId: v })}
-                  options={data.categories.map((c) => ({ id: c.id, label: c.name }))}
-                  width={180}
-                />
-              </Td>
-              <Td align="right"><Input value={spendForm.amount} onChange={(v) => setSpendForm({ ...spendForm, amount: v })} placeholder="0.00" type="number" width={90} onEnter={logSpend} /></Td>
-              <Td align="right"><Btn small onClick={logSpend}>log</Btn></Td>
             </tr>
           </tbody>
         </Table>

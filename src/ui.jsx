@@ -153,6 +153,31 @@ export function TabBar({ tabs, active, onChange }) {
   );
 }
 
+// Grid of KPI tiles for headline numbers (balances, projections) that
+// deserve real visual weight instead of disappearing into another table row.
+export function StatRow({ stats }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(136px, 1fr))", gap: 10 }}>
+      {stats.map((s, i) => (
+        <div key={i} style={{
+          border: `1px solid ${LINE}`, borderRadius: RADIUS, background: CARD,
+          boxShadow: SHADOW_CARD, padding: "13px 16px",
+        }}>
+          <div style={{
+            fontFamily: SANS, fontSize: 10.5, fontWeight: 600, color: MUTE,
+            textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6, whiteSpace: "nowrap",
+          }}>{s.label}</div>
+          <div style={{
+            fontFamily: MONO, fontSize: 21, fontWeight: 600, letterSpacing: "-0.01em",
+            color: s.color || INK, whiteSpace: "nowrap",
+          }}>{s.value}</div>
+          {s.sub && <div style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE, marginTop: 3 }}>{s.sub}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Elevated panel for chart insight boxes, callouts, and freeform content.
 export function Card({ children, style, tint }) {
   return (
