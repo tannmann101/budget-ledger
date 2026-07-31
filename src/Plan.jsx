@@ -1,7 +1,14 @@
 import { useState, useMemo } from "react";
 import { simulate, DEFAULT_ASSUMPTIONS, payBreakdown } from "./simulationEngine";
+import { accrueDebt } from "./debtAccrual";
 import { MONO, BG, INK, MUTE, LINE, HEAD_BG, TEAL, BRICK, GOLD } from "./theme";
 import { Table, Th, Td, Btn, Input, SectionTitle, TabBar, Card, Note } from "./ui";
+
+const todayStr = () => new Date().toISOString().slice(0, 10);
+// Fixed bills is no longer a manually-typed, driftable assumption -- it's
+// always the live total of the Dashboard's Static Bills list, so the plan
+// can't silently go stale relative to what you're actually looking at there.
+export const liveFixedBills = (data) => (data.staticBills || []).reduce((s, b) => s + Number(b.amount || 0), 0);
 
 const fmt = (n) =>
   (n < 0 ? "-$" : "$") + Math.abs(Math.round(n)).toLocaleString();
@@ -145,16 +152,21 @@ function PlanChart({ plan, whatIfPlan, changed, startingDebt, assumptions, whatI
 
 export default function Plan({ data, commit, whatIf, setWhatIf }) {
   const assumptions = { ...DEFAULT_ASSUMPTIONS, ...(data.assumptions || {}) };
+  const fixedBillsMonthly = liveFixedBills(data);
 
   const startDate = useMemo(() => new Date(), []);
+  // Real balances only change when someone manually saves a new number on the
+  // Debts page -- accrue each one to today first, or the simulation starts
+  // from a stale balance and understates how much is actually owed right now.
+  const accruedDebts = useMemo(() => data.debts.map((d) => accrueDebt(d, todayStr())), [data.debts]);
 
   const plan = useMemo(
-    () => simulate({ debts: data.debts, savings: Number(data.savings), assumptions, periods: 260, startDate }),
-    [data.debts, data.savings, assumptions, startDate]
+    () => simulate({ debts: accruedDebts, savings: Number(data.savings), assumptions: { ...assumptions, fixedBillsMonthly }, periods: 260, startDate }),
+    [accruedDebts, data.savings, assumptions, fixedBillsMonthly, startDate]
   );
   const whatIfPlan = useMemo(
-    () => simulate({ debts: data.debts, savings: Number(data.savings), assumptions: whatIf, periods: 260, startDate }),
-    [data.debts, data.savings, whatIf, startDate]
+    () => simulate({ debts: accruedDebts, savings: Number(data.savings), assumptions: { ...whatIf, fixedBillsMonthly }, periods: 260, startDate }),
+    [accruedDebts, data.savings, whatIf, fixedBillsMonthly, startDate]
   );
 
   const changed = JSON.stringify(whatIf) !== JSON.stringify(assumptions);
@@ -225,10 +237,14 @@ export default function Plan({ data, commit, whatIf, setWhatIf }) {
         </div>
         <div style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE, textTransform: "uppercase", letterSpacing: "0.03em", margin: "0 0 8px" }}>Debt &amp; Bills</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
-          {field("fixedBillsMonthly", "Fixed bills ($/mo)", 100)}
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <label style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE, textTransform: "uppercase" }}>Fixed bills ($/mo)</label>
+            <div style={{ fontFamily: MONO, fontSize: 12.5, color: INK, padding: "6px 0" }}>{fmt(fixedBillsMonthly)}</div>
+          </div>
           {field("extraDebtPaymentPerPeriod", "Extra debt pmt ($/period)", 100)}
           {field("allocationSplit", "Split to debt (0-1)", 80)}
         </div>
+        <Note>Fixed bills is pulled live from the Dashboard's Static Bills list — edit it there, not here.</Note>
       </Card>
 
       <SectionTitle note="how net pay is actually calculated — no black boxing">Pay Calculation</SectionTitle>

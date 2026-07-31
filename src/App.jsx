@@ -9,13 +9,12 @@ import Dashboard from "./Dashboard";
 import { accrueDebt } from "./debtAccrual";
 import { DEFAULT_ASSUMPTIONS } from "./simulationEngine";
 import { buildReport } from "./report";
-import { MONO, SANS, BG, PAGE, INK, MUTE, LINE, TEAL, BRICK, GOLD, RADIUS_SM } from "./theme";
-import { GlobalStyle, Table, Th, Td, SectionTitle, Btn, Input, Select, TabBar, Card } from "./ui";
+import { MONO, SANS, PAGE, INK, MUTE, LINE, TEAL, BRICK, GOLD } from "./theme";
+import { GlobalStyle, Table, Th, Td, SectionTitle, Btn, Input, Select, TabBar } from "./ui";
 import { IconLedger, IconDebts, IconPlan, IconDashboard } from "./icons";
 
 const fmt = (n) =>
   (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtShort = (n) => (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const monthStr = (d = new Date()) => d.toISOString().slice(0, 7);
 const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
@@ -35,7 +34,8 @@ const DEFAULT_STATIC_BILLS = [
 ];
 
 const DEFAULT_CATEGORIES = [
-  { id: "cat-gas-groceries", name: "Gas/Groceries", limit: 700, chargeDebtId: "debt-my-cc" },
+  { id: "cat-gas", name: "Gas" },
+  { id: "cat-groceries", name: "Groceries" },
   { id: "cat-rent", name: "Rent" },
   { id: "cat-amazon", name: "Amazon" },
   { id: "cat-adjustment", name: "Adjustment" },
@@ -54,6 +54,11 @@ const DEFAULT_CATEGORIES = [
   { id: "cat-savings", name: "Savings" },
   { id: "cat-utilities", name: "Utilities" },
   { id: "cat-work-expense", name: "Work Expense" },
+  { id: "cat-lending", name: "Lending" },
+  { id: "cat-raven", name: "Raven" },
+  { id: "cat-subscriptions", name: "Subscriptions" },
+  { id: "cat-home-buys", name: "Home Buys" },
+  { id: "cat-toiletries-cleaning-maintenance", name: "Toiletries/Cleaning/Maintenance" },
 ];
 
 function buildSeedData() {
@@ -402,186 +407,6 @@ function historyEntry(nextData) {
   return { date: today, checking: Number(nextData.checking), savings: Number(nextData.savings), debt: debtTotal };
 }
 
-/* ---------- shared table primitives now live in ./ui ---------- */
-
-function sourceLabel(sourceId, options) {
-  const opt = options.find((o) => o.id === sourceId);
-  return opt ? opt.label : "Checking";
-}
-
-/* ---------- trend chart (kept as a chart, restyled plain) ---------- */
-
-const SERIES = [
-  { key: "checking", label: "Checking", color: TEAL },
-  { key: "savings", label: "Savings", color: GOLD },
-  { key: "debt", label: "Debt", color: BRICK },
-  { key: "netWorth", label: "Net worth", color: MUTE },
-];
-
-function addPeriod(date, granularity) {
-  const d = new Date(date);
-  if (granularity === "day") d.setDate(d.getDate() + 1);
-  else if (granularity === "week") d.setDate(d.getDate() + 7);
-  else if (granularity === "month") d.setMonth(d.getMonth() + 1);
-  else if (granularity === "quarter") d.setMonth(d.getMonth() + 3);
-  else if (granularity === "year") d.setFullYear(d.getFullYear() + 1);
-  return d;
-}
-function labelFor(date, granularity) {
-  if (granularity === "day" || granularity === "week") return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  if (granularity === "month") return date.toLocaleDateString(undefined, { month: "short", year: "2-digit" });
-  if (granularity === "quarter") return `Q${Math.floor(date.getMonth() / 3) + 1} '${String(date.getFullYear()).slice(2)}`;
-  return String(date.getFullYear());
-}
-const RANGE_DAYS = { day: 60, week: 182, month: 730, quarter: 1095, year: 1825 };
-
-function buildTrendPoints(history, granularity) {
-  if (!history || history.length === 0) return [];
-  const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
-  const cutoff = daysAgo(RANGE_DAYS[granularity]);
-  const firstDate = new Date(sorted[0].date);
-  const start = firstDate > cutoff ? firstDate : cutoff;
-  const today = new Date();
-  const points = [];
-  let cursor = new Date(start);
-  let guard = 0;
-  while (cursor <= today && guard < 600) {
-    guard++;
-    const dateStr = cursor.toISOString().slice(0, 10);
-    let entry = null;
-    for (let i = sorted.length - 1; i >= 0; i--) {
-      if (sorted[i].date <= dateStr) { entry = sorted[i]; break; }
-    }
-    if (entry) {
-      points.push({
-        date: dateStr, checking: entry.checking, savings: entry.savings, debt: entry.debt || 0,
-        netWorth: entry.checking + entry.savings - (entry.debt || 0), label: labelFor(cursor, granularity),
-      });
-    }
-    cursor = addPeriod(cursor, granularity);
-  }
-  return points;
-}
-
-function buildMonthlySummary(data) {
-  const totals = new Map();
-  const bump = (month, key, amount) => {
-    if (!month) return;
-    if (!totals.has(month)) totals.set(month, { month, income: 0, spending: 0 });
-    // Math.abs sidesteps inconsistent sign conventions between historical and
-    // live-logged transactions — safe here since we only need spend magnitude.
-    totals.get(month)[key] += Math.abs(Number(amount || 0));
-  };
-  for (const p of data.income || []) bump(p.date?.slice(0, 7), "income", p.amount);
-  for (const t of data.transactions || []) {
-    if (t.type === "expense" || t.type === "bill") bump(t.date?.slice(0, 7), "spending", t.amount);
-  }
-  return [...totals.values()].sort((a, b) => a.month.localeCompare(b.month));
-}
-function monthLabel(monthStr) {
-  const [y, m] = monthStr.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "short", year: "2-digit" });
-}
-
-function MonthlyBarChart({ data }) {
-  const W = 700, H = 220, PAD_L = 58, PAD_R = 14, PAD_T = 14, PAD_B = 34;
-  const innerW = W - PAD_L - PAD_R;
-  const innerH = H - PAD_T - PAD_B;
-  const max = Math.max(...data.flatMap((d) => [d.income, d.spending]), 1);
-  const groupW = innerW / data.length;
-  const barW = Math.min(20, groupW * 0.32);
-  const x = (i) => PAD_L + groupW * i + groupW / 2;
-  const y = (v) => PAD_T + innerH - (v / max) * innerH;
-  const barH = (v) => (v / max) * innerH;
-  const [hover, setHover] = useState(null);
-  const gridLines = 4;
-
-  return (
-    <div style={{ width: "100%", overflowX: "auto" }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 460, display: "block" }} onMouseLeave={() => setHover(null)}>
-        {Array.from({ length: gridLines + 1 }).map((_, i) => {
-          const gy = PAD_T + (innerH / gridLines) * i;
-          const val = max - (max / gridLines) * i;
-          return (
-            <g key={i}>
-              <line x1={PAD_L} x2={W - PAD_R} y1={gy} y2={gy} stroke={LINE} />
-              <text x={PAD_L - 6} y={gy + 3} textAnchor="end" fontFamily={MONO} fontSize="10" fill={MUTE}>{fmtShort(val)}</text>
-            </g>
-          );
-        })}
-        {data.map((d, i) => (
-          <g key={d.month} onMouseEnter={() => setHover(i)}>
-            <rect x={x(i) - barW - 2} y={y(d.income)} width={barW} height={Math.max(barH(d.income), 0)} fill={TEAL} />
-            <rect x={x(i) + 2} y={y(d.spending)} width={barW} height={Math.max(barH(d.spending), 0)} fill={BRICK} />
-            <rect x={x(i) - groupW / 2} y={PAD_T} width={groupW} height={innerH} fill="transparent" />
-            <text x={x(i)} y={H - 14} textAnchor="middle" fontFamily={MONO} fontSize="9.5" fill={MUTE}>{monthLabel(d.month)}</text>
-          </g>
-        ))}
-      </svg>
-      {hover !== null && (
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontFamily: MONO, fontSize: 11.5, color: INK, paddingLeft: 4 }}>
-          <span style={{ color: MUTE }}>{monthLabel(data[hover].month)}</span>
-          <span style={{ color: TEAL }}>Income {fmt(data[hover].income)}</span>
-          <span style={{ color: BRICK }}>Spending {fmt(data[hover].spending)}</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TrendChart({ data, activeSeries }) {
-  const W = 700, H = 230, PAD_L = 58, PAD_R = 14, PAD_T = 14, PAD_B = 26;
-  const innerW = W - PAD_L - PAD_R;
-  const innerH = H - PAD_T - PAD_B;
-  const allVals = data.flatMap((d) => activeSeries.map((s) => d[s.key]));
-  const max = Math.max(...allVals, 1);
-  const min = Math.min(...allVals, 0);
-  const span = max - min || 1;
-  const x = (i) => PAD_L + (data.length === 1 ? innerW / 2 : (i / (data.length - 1)) * innerW);
-  const y = (v) => PAD_T + innerH - ((v - min) / span) * innerH;
-  const path = (key) => data.map((d, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(d[key]).toFixed(1)}`).join(" ");
-  const [hover, setHover] = useState(null);
-  const gridLines = 4;
-  const step = Math.max(1, Math.ceil(data.length / 7));
-
-  return (
-    <div style={{ width: "100%", overflowX: "auto" }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 460, display: "block" }} onMouseLeave={() => setHover(null)}>
-        {Array.from({ length: gridLines + 1 }).map((_, i) => {
-          const gy = PAD_T + (innerH / gridLines) * i;
-          const val = max - (span / gridLines) * i;
-          return (
-            <g key={i}>
-              <line x1={PAD_L} x2={W - PAD_R} y1={gy} y2={gy} stroke={LINE} />
-              <text x={PAD_L - 6} y={gy + 3} textAnchor="end" fontFamily={MONO} fontSize="10" fill={MUTE}>{fmtShort(val)}</text>
-            </g>
-          );
-        })}
-        {data.map((d, i) => i % step === 0 || i === data.length - 1 ? (
-          <text key={i} x={x(i)} y={H - 7} textAnchor="middle" fontFamily={MONO} fontSize="9.5" fill={MUTE}>{d.label}</text>
-        ) : null)}
-        {activeSeries.map((s) => <path key={s.key} d={path(s.key)} fill="none" stroke={s.color} strokeWidth="2" />)}
-        {data.map((d, i) => (
-          <rect key={i} x={x(i) - innerW / Math.max(data.length - 1, 1) / 2} y={PAD_T}
-            width={innerW / Math.max(data.length - 1, 1)} height={innerH} fill="transparent" onMouseEnter={() => setHover(i)} />
-        ))}
-        {hover !== null && (
-          <g>
-            <line x1={x(hover)} x2={x(hover)} y1={PAD_T} y2={PAD_T + innerH} stroke={INK} strokeOpacity="0.2" />
-            {activeSeries.map((s) => <circle key={s.key} cx={x(hover)} cy={y(data[hover][s.key])} r="3.5" fill={s.color} />)}
-          </g>
-        )}
-      </svg>
-      {hover !== null && (
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontFamily: MONO, fontSize: 11.5, color: INK, paddingLeft: 4 }}>
-          <span style={{ color: MUTE }}>{data[hover].label}</span>
-          {activeSeries.map((s) => <span key={s.key} style={{ color: s.color }}>{s.label} {fmt(data[hover][s.key])}</span>)}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ---------- auth + cloud data wrapper ---------- */
 
 export default function App() {
@@ -615,19 +440,14 @@ export default function App() {
 function Ledger({ data, commit, removeItem, replaceAll, saveStatus, userEmail, onSignOut }) {
   const [spendForm, setSpendForm] = useState({ categoryId: "", amount: "" });
   const [transferAmt, setTransferAmt] = useState("");
-  const [granularity, setGranularity] = useState("week");
-  const [activeKeys, setActiveKeys] = useState(["checking", "savings", "netWorth"]);
   const [newPaycheck, setNewPaycheck] = useState({ date: todayStr(), amount: "", note: "", addToChecking: true });
   const [acctAmt, setAcctAmt] = useState({ checking: "", savings: "" });
-  const [debtPay, setDebtPay] = useState({});
   const [showAllIncome, setShowAllIncome] = useState(false);
   const [showAllTxns, setShowAllTxns] = useState(false);
-  const [page, setPage] = useState("ledger");
+  const [logExpanded, setLogExpanded] = useState(false);
+  const [page, setPage] = useState("dashboard");
   const [reportMsg, setReportMsg] = useState("");
   const [whatIf, setWhatIf] = useState(() => ({ ...DEFAULT_ASSUMPTIONS, ...(data.assumptions || {}) }));
-
-  const chartData = useMemo(() => buildTrendPoints(data.history, granularity), [data, granularity]);
-  const monthlySummary = useMemo(() => buildMonthlySummary(data), [data]);
 
   const currentMonth = monthStr();
   const totalDebt = data.debts.reduce((s, d) => s + accrueDebt(d, todayStr()).balance, 0);
@@ -648,9 +468,6 @@ function Ledger({ data, commit, removeItem, replaceAll, saveStatus, userEmail, o
   const last90Spend = data.transactions.filter((t) => (t.type === "expense" || t.type === "bill" || (t.type === "debt-payment" && t.account === "Checking")) && inRange(t.date, 90));
   const avgMonthlySpend = last90Spend.reduce((s, t) => s + Math.abs(Number(t.amount || 0)), 0) / 3;
   const spendRatio = avgMonthlyIncome > 0 ? avgMonthlySpend / avgMonthlyIncome : null;
-
-  const sourceOptionsBase = [{ id: "checking", label: "Checking" }, ...data.debts.map((d) => ({ id: d.id, label: d.name }))];
-  const debtNameById = (id) => (data.debts.find((d) => d.id === id) || {}).name || id;
 
   /* ---- accounts ---- */
   const doAccountAdjust = (which, sign) => {
@@ -718,66 +535,13 @@ function Ledger({ data, commit, removeItem, replaceAll, saveStatus, userEmail, o
       main: { checking: nextChecking },
       add: {
         expenses: [{ categoryId: catId, amount: amt, month: currentMonth }],
-        transactions: [{ date: todayStr(), type: "expense", description: cat ? cat.name : "Expense", amount: amt, account: "Checking" }],
+        transactions: [{ date: todayStr(), type: "expense", description: cat ? cat.name : "Expense", categoryId: catId, amount: amt, account: "Checking" }],
         history: [historyEntry(next)],
       },
     });
     setSpendForm({ ...spendForm, amount: "" });
   };
 
-  /* ---- debts ---- */
-  const payDebt = (id) => {
-    const cfg = debtPay[id] || {};
-    const amount = Number(cfg.amount);
-    const source = cfg.source || "checking";
-    if (!amount) return;
-    const today = todayStr();
-    let nextChecking = Number(data.checking);
-    const nextDebts = data.debts.map((d) => {
-      let nd = d;
-      if (d.id === id) {
-        nd = accrueDebt(nd, today);
-        nd = { ...nd, balance: Math.max(0, nd.balance - amount), totalPaid: (nd.totalPaid || 0) + amount };
-      }
-      if (source !== "checking" && d.id === source) {
-        nd = accrueDebt(nd, today);
-        nd = { ...nd, balance: nd.balance + amount, totalCharged: (nd.totalCharged || 0) + amount };
-      }
-      return nd;
-    });
-    if (source === "checking") nextChecking -= amount;
-    const next = { ...data, debts: nextDebts, checking: nextChecking };
-    commit({
-      main: { debts: nextDebts, checking: nextChecking },
-      add: {
-        transactions: [{ date: today, type: "debt-payment", description: debtNameById(id), amount, account: sourceLabel(source, sourceOptionsBase) }],
-        history: [historyEntry(next)],
-      },
-    });
-    setDebtPay({ ...debtPay, [id]: { ...cfg, amount: "" } });
-  };
-  const chargeDebt = (id) => {
-    const cfg = debtPay[id] || {};
-    const amount = Number(cfg.amount);
-    if (!amount) return;
-    const today = todayStr();
-    const nextDebts = data.debts.map((d) => {
-      if (d.id !== id) return d;
-      const accrued = accrueDebt(d, today);
-      return { ...accrued, balance: accrued.balance + amount, totalCharged: (d.totalCharged || 0) + amount };
-    });
-    const next = { ...data, debts: nextDebts };
-    commit({
-      main: { debts: nextDebts },
-      add: {
-        transactions: [{ date: today, type: "debt-charge", description: debtNameById(id), amount, account: debtNameById(id) }],
-        history: [historyEntry(next)],
-      },
-    });
-    setDebtPay({ ...debtPay, [id]: { ...cfg, amount: "" } });
-  };
-  const toggleSeries = (key) => setActiveKeys((k) => k.includes(key) ? k.filter((x) => x !== key) : [...k, key]);
-  const activeSeries = SERIES.filter((s) => activeKeys.includes(s.key));
   const sortedTxns = [...(data.transactions || [])].sort((a, b) => b.date.localeCompare(a.date) || 0);
   const visibleTxns = showAllTxns ? sortedTxns : sortedTxns.slice(0, 40);
   const resetToSeed = () => {
@@ -913,27 +677,6 @@ function Ledger({ data, commit, removeItem, replaceAll, saveStatus, userEmail, o
           </tbody>
         </Table>
 
-        {/* Debts */}
-        <SectionTitle note={`${fmt(totalDebt)} total owed · manage accounts on the Debts page`}>Debt Payments</SectionTitle>
-        <Table>
-          <thead><tr><Th>Account</Th><Th align="right">Balance</Th><Th align="right">Amount</Th><Th> </Th><Th> </Th></tr></thead>
-          <tbody>
-            {data.debts.map((d) => {
-              const cfg = debtPay[d.id] || { amount: "", source: "checking" };
-              const opts = sourceOptionsBase.filter((o) => o.id !== d.id);
-              return (
-                <tr key={d.id}>
-                  <Td>{d.name}</Td>
-                  <Td align="right" mono style={{ color: BRICK }}>{fmt(accrueDebt(d, todayStr()).balance)}</Td>
-                  <Td align="right"><Input value={cfg.amount} onChange={(v) => setDebtPay({ ...debtPay, [d.id]: { ...cfg, amount: v } })} placeholder="0.00" type="number" width={90} /></Td>
-                  <Td><Select value={cfg.source} onChange={(v) => setDebtPay({ ...debtPay, [d.id]: { ...cfg, source: v } })} options={opts} width={150} /></Td>
-                  <Td align="right"><Btn small onClick={() => payDebt(d.id)}>Payment −</Btn> <Btn small color={BRICK} onClick={() => chargeDebt(d.id)}>Charge +</Btn></Td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </Table>
-
         {/* Log a spend */}
         <SectionTitle>Log a Spend</SectionTitle>
         <Table>
@@ -954,60 +697,36 @@ function Ledger({ data, commit, removeItem, replaceAll, saveStatus, userEmail, o
           </tbody>
         </Table>
 
-        {/* Trends */}
-        <SectionTitle>Trends</SectionTitle>
-        <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {["day", "week", "month", "quarter", "year"].map((g) => (
-              <Btn key={g} small color={granularity === g ? INK : MUTE} onClick={() => setGranularity(g)}>{g}</Btn>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {SERIES.map((s) => (
-              <span key={s.key} onClick={() => toggleSeries(s.key)} style={{
-                cursor: "pointer", fontFamily: MONO, fontSize: 11, padding: "4px 9px", borderRadius: RADIUS_SM,
-                border: `1px solid ${s.color}`, color: activeKeys.includes(s.key) ? BG : s.color,
-                background: activeKeys.includes(s.key) ? s.color : "transparent", transition: "120ms ease",
-              }}>{s.label}</span>
-            ))}
-          </div>
-        </div>
-        {chartData.length < 2 || activeSeries.length === 0 ? (
-          <p style={{ color: MUTE, fontSize: 12.5, fontFamily: MONO }}>{activeSeries.length === 0 ? "Pick at least one series above." : "This needs at least 2 different days of activity to draw a line — check back tomorrow."}</p>
-        ) : (
-          <Card><TrendChart data={chartData} activeSeries={activeSeries} /></Card>
+        {/* Income/Expense log */}
+        <SectionTitle note={logExpanded ? `showing ${visibleTxns.length} of ${sortedTxns.length}` : `${sortedTxns.length} entries`}>
+          <span onClick={() => setLogExpanded((v) => !v)} style={{ cursor: "pointer", userSelect: "none" }}>
+            {logExpanded ? "▾" : "▸"} Income/Expense Log
+          </span>
+        </SectionTitle>
+        {logExpanded && (
+          <>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+              <Btn small color={MUTE} onClick={() => setShowAllTxns((v) => !v)}>
+                {showAllTxns ? "show recent 40" : `show all ${sortedTxns.length}`}
+              </Btn>
+            </div>
+            <Table>
+              <thead><tr><Th>Date</Th><Th>Type</Th><Th>Description</Th><Th align="right">Amount</Th><Th>Account</Th></tr></thead>
+              <tbody>
+                {visibleTxns.length === 0 && <tr><Td colSpan={5} muted>Nothing logged yet.</Td></tr>}
+                {visibleTxns.map((t) => (
+                  <tr key={t.id}>
+                    <Td mono muted>{t.date}</Td>
+                    <Td muted style={{ textTransform: "capitalize" }}>{t.type.replace("-", " ")}</Td>
+                    <Td>{t.description}</Td>
+                    <Td align="right" mono style={{ color: t.amount < 0 ? BRICK : INK }}>{fmt(t.amount)}</Td>
+                    <Td muted>{t.account}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </>
         )}
-
-        {/* Monthly income vs spending */}
-        <SectionTitle note="from logged income, expenses & paid bills">Income vs Spending</SectionTitle>
-        {monthlySummary.length === 0 ? (
-          <p style={{ color: MUTE, fontSize: 12.5, fontFamily: MONO }}>Log some income or expenses to see this.</p>
-        ) : (
-          <Card><MonthlyBarChart data={monthlySummary} /></Card>
-        )}
-
-        {/* Recent transactions */}
-        <SectionTitle note={`showing ${visibleTxns.length} of ${sortedTxns.length}`}>Recent Activity</SectionTitle>
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-          <Btn small color={MUTE} onClick={() => setShowAllTxns((v) => !v)}>
-            {showAllTxns ? "show recent 40" : `show all ${sortedTxns.length}`}
-          </Btn>
-        </div>
-        <Table>
-          <thead><tr><Th>Date</Th><Th>Type</Th><Th>Description</Th><Th align="right">Amount</Th><Th>Account</Th></tr></thead>
-          <tbody>
-            {visibleTxns.length === 0 && <tr><Td colSpan={5} muted>Nothing logged yet.</Td></tr>}
-            {visibleTxns.map((t) => (
-              <tr key={t.id}>
-                <Td mono muted>{t.date}</Td>
-                <Td muted style={{ textTransform: "capitalize" }}>{t.type.replace("-", " ")}</Td>
-                <Td>{t.description}</Td>
-                <Td align="right" mono style={{ color: t.amount < 0 ? BRICK : INK }}>{fmt(t.amount)}</Td>
-                <Td muted>{t.account}</Td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
         </>
         )}
 
