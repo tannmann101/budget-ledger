@@ -64,5 +64,18 @@ service cloud.firestore {
         allow create, update: if isAllowed() && isValidTransactionItem(request.resource.data);
       }
     }
+
+    // Monthly Budget -- deliberately its own top-level collection rather than
+    // living under /ledger: separate feature, separate page, no shared
+    // schema or document-size budget with the main ledger doc. Each entry is
+    // its own document (like income/transactions/etc. above), so appends
+    // never conflict and don't need a transaction.
+    function isValidBudgetEntry(d) {
+      return d.date is string && d.amount is number && d.category is string;
+    }
+    match /budgetEntries/{entryId} {
+      allow read, delete: if isAllowed();
+      allow create, update: if isAllowed() && isValidBudgetEntry(request.resource.data);
+    }
   }
 }
