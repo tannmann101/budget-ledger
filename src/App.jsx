@@ -3,18 +3,17 @@ import { signOut } from "firebase/auth";
 import { auth } from "./firebase";
 import { useCloudLedger } from "./useCloudLedger";
 import AuthGate, { useAuthUser, Centered } from "./AuthGate";
-import Plan from "./Plan";
 import Debts from "./Debts";
 import Dashboard from "./Dashboard";
 import { accrueDebt } from "./debtAccrual";
-import { DEFAULT_ASSUMPTIONS } from "./simulationEngine";
 import { buildReport } from "./report";
 import { MONO, SANS, PAGE, INK, MUTE, LINE, TEAL, BRICK, GOLD } from "./theme";
 import { GlobalStyle, Table, Th, Td, SectionTitle, Btn, Input, Select, TabBar, StatRow } from "./ui";
-import { IconLedger, IconDebts, IconPlan, IconDashboard } from "./icons";
+import { IconLedger, IconDebts, IconDashboard } from "./icons";
 
 const fmt = (n) =>
   (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const uid = () => Math.random().toString(36).slice(2, 10);
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const monthStr = (d = new Date()) => d.toISOString().slice(0, 7);
 const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
@@ -446,7 +445,8 @@ function Ledger({ data, commit, replaceAll, saveStatus, userEmail, onSignOut }) 
   const [logExpanded, setLogExpanded] = useState(false);
   const [page, setPage] = useState("dashboard");
   const [reportMsg, setReportMsg] = useState("");
-  const [whatIf, setWhatIf] = useState(() => ({ ...DEFAULT_ASSUMPTIONS, ...(data.assumptions || {}) }));
+  const [newCatName, setNewCatName] = useState("");
+  const [catDraft, setCatDraft] = useState({});
 
   const currentMonth = monthStr();
   const totalDebt = data.debts.reduce((s, d) => s + accrueDebt(d, todayStr()).balance, 0);
@@ -464,13 +464,11 @@ function Ledger({ data, commit, replaceAll, saveStatus, userEmail, onSignOut }) 
     const n = Number(acctAmt[which]);
     if (!n) return;
     const delta = sign * n;
-    const nextVal = Number(data[which]) + delta;
-    const next = { ...data, [which]: nextVal };
     commit({
-      main: { [which]: nextVal },
+      main: (serverMain) => ({ [which]: Number(serverMain[which] || 0) + delta }),
       add: {
         transactions: [{ date: todayStr(), type: sign > 0 ? "deposit" : "withdrawal", description: "Manual entry", amount: n, account: which === "checking" ? "Checking" : "Savings" }],
-        history: [historyEntry(next)],
+        history: (serverMain) => [historyEntry({ ...serverMain, [which]: Number(serverMain[which] || 0) + delta })],
       },
     });
     setAcctAmt({ ...acctAmt, [which]: "" });
@@ -478,14 +476,16 @@ function Ledger({ data, commit, replaceAll, saveStatus, userEmail, onSignOut }) 
   const doTransfer = (direction) => {
     const n = Number(transferAmt);
     if (!n) return;
-    let checking = Number(data.checking), savings = Number(data.savings);
-    if (direction === "toSavings") { checking -= n; savings += n; } else { checking += n; savings -= n; }
-    const next = { ...data, checking, savings };
+    const nextBalances = (serverMain) => {
+      let checking = Number(serverMain.checking || 0), savings = Number(serverMain.savings || 0);
+      if (direction === "toSavings") { checking -= n; savings += n; } else { checking += n; savings -= n; }
+      return { checking, savings };
+    };
     commit({
-      main: { checking, savings },
+      main: (serverMain) => nextBalances(serverMain),
       add: {
         transactions: [{ date: todayStr(), type: "transfer", description: direction === "toSavings" ? "Checking → Savings" : "Savings → Checking", amount: n, account: "Transfer" }],
-        history: [historyEntry(next)],
+        history: (serverMain) => [historyEntry({ ...serverMain, ...nextBalances(serverMain) })],
       },
     });
     setTransferAmt("");
@@ -496,14 +496,12 @@ function Ledger({ data, commit, replaceAll, saveStatus, userEmail, onSignOut }) 
     if (!newPaycheck.amount) return;
     const amount = Number(newPaycheck.amount);
     const date = newPaycheck.date || todayStr();
-    const nextChecking = newPaycheck.addToChecking ? Number(data.checking) + amount : Number(data.checking);
-    const next = { ...data, checking: nextChecking };
     commit({
-      main: newPaycheck.addToChecking ? { checking: nextChecking } : undefined,
+      main: newPaycheck.addToChecking ? (serverMain) => ({ checking: Number(serverMain.checking || 0) + amount }) : undefined,
       add: {
         income: [{ date, amount, note: newPaycheck.note }],
         transactions: [{ date: todayStr(), type: "income", description: newPaycheck.note || "Paycheck", amount, account: newPaycheck.addToChecking ? "Checking" : "(not deposited)" }],
-        history: [historyEntry(next)],
+        history: (serverMain) => [historyEntry(newPaycheck.addToChecking ? { ...serverMain, checking: Number(serverMain.checking || 0) + amount } : serverMain)],
       },
     });
     setNewPaycheck({ date: todayStr(), amount: "", note: "", addToChecking: true });
@@ -515,17 +513,38 @@ function Ledger({ data, commit, replaceAll, saveStatus, userEmail, onSignOut }) 
     const amt = Number(spendForm.amount);
     if (!catId || !amt) return;
     const cat = data.categories.find((c) => c.id === catId);
-    const nextChecking = Number(data.checking) - amt;
-    const next = { ...data, checking: nextChecking };
     commit({
-      main: { checking: nextChecking },
+      main: (serverMain) => ({ checking: Number(serverMain.checking || 0) - amt }),
       add: {
         expenses: [{ categoryId: catId, amount: amt, month: currentMonth }],
         transactions: [{ date: todayStr(), type: "expense", description: cat ? cat.name : "Expense", categoryId: catId, amount: amt, account: "Checking" }],
-        history: [historyEntry(next)],
+        history: (serverMain) => [historyEntry({ ...serverMain, checking: Number(serverMain.checking || 0) - amt })],
       },
     });
     setSpendForm({ ...spendForm, amount: "" });
+  };
+
+  /* ---- categories ---- */
+  const addCategory = () => {
+    if (!newCatName.trim()) return;
+    const cat = { id: `cat-${uid()}`, name: newCatName.trim() };
+    commit({ main: (serverMain) => ({ categories: [...(serverMain.categories || []), cat] }) });
+    setNewCatName("");
+  };
+  const renameCategory = (id) => {
+    const name = catDraft[id];
+    if (name === undefined || name === "") return;
+    commit({
+      main: (serverMain) => ({
+        categories: (serverMain.categories || []).map((c) => c.id === id ? { ...c, name } : c),
+      }),
+    });
+    setCatDraft({ ...catDraft, [id]: undefined });
+  };
+  const removeCategory = (id) => {
+    const cat = data.categories.find((c) => c.id === id);
+    if (!window.confirm(`Delete category "${cat ? cat.name : id}"? Past transactions logged under it keep their record but will show as uncategorized.`)) return;
+    commit({ main: (serverMain) => ({ categories: (serverMain.categories || []).filter((c) => c.id !== id) }) });
   };
 
   const sortedTxns = [...(data.transactions || [])].sort((a, b) => b.date.localeCompare(a.date) || 0);
@@ -536,7 +555,7 @@ function Ledger({ data, commit, replaceAll, saveStatus, userEmail, onSignOut }) 
   };
 
   const downloadReport = () => {
-    const md = buildReport({ data, whatIf });
+    const md = buildReport({ data });
     const blob = new Blob([md], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -576,14 +595,12 @@ function Ledger({ data, commit, replaceAll, saveStatus, userEmail, onSignOut }) 
             tabs={[
               { id: "ledger", label: "Ledger", icon: <IconLedger /> },
               { id: "debts", label: "Debts", icon: <IconDebts /> },
-              { id: "plan", label: "Plan", icon: <IconPlan /> },
               { id: "dashboard", label: "Dashboard", icon: <IconDashboard /> },
             ]}
           />
         </div>
 
         {page === "debts" && <Debts data={data} commit={commit} />}
-        {page === "plan" && <Plan data={data} commit={commit} whatIf={whatIf} setWhatIf={setWhatIf} />}
         {page === "dashboard" && <Dashboard data={data} commit={commit} />}
 
         {page === "ledger" && (
@@ -616,6 +633,29 @@ function Ledger({ data, commit, replaceAll, saveStatus, userEmail, onSignOut }) 
               </Td>
               <Td align="right"><Input value={spendForm.amount} onChange={(v) => setSpendForm({ ...spendForm, amount: v })} placeholder="0.00" type="number" width={90} onEnter={logSpend} /></Td>
               <Td align="right"><Btn small onClick={logSpend}>log</Btn></Td>
+            </tr>
+          </tbody>
+        </Table>
+
+        {/* Categories */}
+        <SectionTitle note={`${data.categories.length} categories`}>Categories</SectionTitle>
+        <Table>
+          <thead><tr><Th>Name</Th><Th align="right"> </Th></tr></thead>
+          <tbody>
+            {data.categories.map((c) => (
+              <tr key={c.id}>
+                <Td>
+                  <Input value={catDraft[c.id] ?? c.name} onChange={(v) => setCatDraft({ ...catDraft, [c.id]: v })} width={200} onEnter={() => renameCategory(c.id)} />
+                </Td>
+                <Td align="right">
+                  <Btn small onClick={() => renameCategory(c.id)}>save</Btn>{" "}
+                  <Btn small color={BRICK} onClick={() => removeCategory(c.id)}>del</Btn>
+                </Td>
+              </tr>
+            ))}
+            <tr>
+              <Td><Input value={newCatName} onChange={setNewCatName} placeholder="New category name" width={200} onEnter={addCategory} /></Td>
+              <Td align="right"><Btn small onClick={addCategory}>add</Btn></Td>
             </tr>
           </tbody>
         </Table>

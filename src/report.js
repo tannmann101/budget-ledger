@@ -1,67 +1,25 @@
 // report.js
 // Pure JS, zero dependencies — matches simulationEngine.js's style.
 // Builds a Markdown snapshot of the ledger: dashboard overview, the full
-// income/expense log, a debt accounts snapshot, the current plan projection
-// with a plain-English explanation, and the full static bills listing.
+// income/expense log, a debt accounts snapshot, a pay reference, and the
+// full static bills listing.
 
 import { accrueDebt } from "./debtAccrual";
-import { simulate, DEFAULT_ASSUMPTIONS, payBreakdown } from "./simulationEngine";
-import { liveFixedBills } from "./Plan";
+import { DEFAULT_ASSUMPTIONS, payBreakdown } from "./simulationEngine";
 
 const fmt = (n) =>
   (n < 0 ? "-$" : "$") + Math.abs(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const todayStr = () => new Date().toISOString().slice(0, 10);
-const fmtDate = (d) => d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-const fmtDateLong = (d) => d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
 const inRange = (dateStr, days) => new Date(dateStr) >= daysAgo(days);
 
-function scenarioClause(a) {
-  const otHrs = Number(a.otHoursPerPeriod) || 0;
-  const events = Number(a.onCallEventsPerMonth) || 0;
-  const otPart = otHrs > 0 ? `${otHrs} OT hr${otHrs === 1 ? "" : "s"}/pay period` : "no overtime";
-  const onCallPart = `${events} on-call event${events === 1 ? "" : "s"}/mo`;
-  const certPart = `a ${a.certCadenceDays}-day cert cadence`;
-  return `${otPart}, ${onCallPart}, and ${certPart}`;
-}
-
-function planExplanation(plan, assumptions, fixedBillsMonthly) {
-  const monthlyIncome = payBreakdown(assumptions, 0).total * (26 / 12);
-  const lines = [];
-  lines.push(
-    `To hit ${plan.payoffPeriod ? "this debt-free date" : "a debt-free date within the model horizon"}, this assumes ` +
-    `${scenarioClause(assumptions)} — currently about ${fmt(monthlyIncome)}/mo in take-home pay at today's rate, ` +
-    `against ${fmt(fixedBillsMonthly)}/mo in fixed bills (the live Static Bills total).`
-  );
-  lines.push(
-    "Every dollar of surplus left after bills and each debt's minimum payment goes to the highest-rate debt first " +
-    "(avalanche method) until it's paid off, then cascades to the next-highest-rate debt. Each cert earned (on the " +
-    "cadence above) permanently raises future pay, compounding the surplus available each period."
-  );
-  if (plan.payoffPeriod) {
-    lines.push(
-      `At this pace: ${fmt(plan.totalInterest)} in total interest paid along the way, and ${fmt(plan.finalSavings)} ` +
-      `in savings once debt hits $0 on ${fmtDateLong(plan.payoffDate)}.`
-    );
-  } else {
-    lines.push(
-      "At this pace, the model runs out of horizon (5 years) before debt reaches $0 — closing the gap needs more " +
-      "surplus per period: higher pay, lower fixed bills, or an extra debt payment lever on the Plan page."
-    );
-  }
-  return lines.join(" ");
-}
-
-export function buildReport({ data, whatIf }) {
+export function buildReport({ data }) {
   const assumptions = { ...DEFAULT_ASSUMPTIONS, ...(data.assumptions || {}) };
-  const fixedBillsMonthly = liveFixedBills(data);
-  const startDate = new Date();
+  const staticBills = data.staticBills || [];
+  const fixedBillsMonthly = staticBills.reduce((s, b) => s + Number(b.amount || 0), 0);
   const accruedDebts = (data.debts || []).map((d) => accrueDebt(d, todayStr()));
-  const plan = simulate({ debts: accruedDebts, savings: Number(data.savings), assumptions: { ...assumptions, fixedBillsMonthly }, periods: 260, startDate });
-  const changed = whatIf && JSON.stringify(whatIf) !== JSON.stringify(assumptions);
-  const whatIfPlan = changed
-    ? simulate({ debts: accruedDebts, savings: Number(data.savings), assumptions: { ...whatIf, fixedBillsMonthly }, periods: 260, startDate })
-    : null;
+  const pay = payBreakdown(assumptions);
+  const monthlyIncome = pay.total * (26 / 12);
 
   const today = todayStr();
   const lines = [];
@@ -129,26 +87,20 @@ export function buildReport({ data, whatIf }) {
   }
   push();
 
-  // 4. Current plan projection + explanation
-  push("## Current Plan Projection");
-  push("| Debt-free | Total Interest | Savings at Payoff |");
-  push("|---|---|---|");
-  push(`| ${plan.payoffPeriod ? fmtDate(plan.payoffDate) : "beyond model horizon"} | ${fmt(plan.totalInterest)} | ${fmt(plan.finalSavings)} |`);
+  // 4. Pay reference
+  push("## Pay Reference");
+  push("| Base Rate | Take-Home Rate | OT Hrs/Period | OT Rate | On-Call/mo | Fixed Bills |");
+  push("|---|---|---|---|---|---|");
+  push(`| ${fmt(assumptions.baseHourlyRate)}/hr | ${(assumptions.takeHomeRate * 100).toFixed(1)}% | ${assumptions.otHoursPerPeriod} | ${fmt(assumptions.otHourlyRate)}/hr | ${assumptions.onCallEventsPerMonth} | ${fmt(fixedBillsMonthly)}/mo |`);
   push();
-  push(planExplanation(plan, assumptions, fixedBillsMonthly));
+  push("| Pay Calculation | Baseline | OT | On-call | Total |");
+  push("|---|---|---|---|---|");
+  push(`| Per Period | ${fmt(pay.baseline)} | ${fmt(pay.ot)} | ${fmt(pay.onCall)} | ${fmt(pay.total)} |`);
+  push(`| Per Month | ${fmt(pay.baseline * (26 / 12))} | ${fmt(pay.ot * (26 / 12))} | ${fmt(pay.onCall * (26 / 12))} | ${fmt(monthlyIncome)} |`);
   push();
-  if (changed) {
-    push("### What-if Scenario (not saved)");
-    push(`- Debt-free: ${whatIfPlan.payoffPeriod ? fmtDate(whatIfPlan.payoffDate) : "beyond model horizon"}`);
-    push(`- Total interest: ${fmt(whatIfPlan.totalInterest)}`);
-    const payoffDelta = plan.payoffPeriod && whatIfPlan.payoffPeriod ? whatIfPlan.payoffPeriod - plan.payoffPeriod : null;
-    push(`- Payoff delta vs. saved plan: ${payoffDelta === null ? "—" : payoffDelta === 0 ? "unchanged" : `${payoffDelta > 0 ? "+" : ""}${(payoffDelta / 2.17).toFixed(1)} mo`}`);
-    push();
-  }
 
   // 5. Static bills
   push("## Static Bills");
-  const staticBills = data.staticBills || [];
   if (staticBills.length === 0) {
     push("_No static bills configured._");
   } else {

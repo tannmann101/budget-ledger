@@ -135,20 +135,53 @@ export function useCloudLedger(enabled) {
   // items never conflict with anything else -- each is its own document --
   // so the only real concurrency risk left is two edits to the same
   // main-doc field (e.g. the debts list) landing at once.
+  //
+  // `main` and each `add` list may be a plain value/array, or a function
+  // that receives the just-fetched *fresh* server state (serverMain, plus
+  // the current items for that add list) and returns the value to write.
+  // Any edit that reads-then-writes part of an array field (rename one
+  // debt, correct one static bill, add a category) MUST use the function
+  // form: two such edits fired back-to-back from this same tab still run
+  // as separate queued transactions, so if the second one builds its next
+  // array from a stale closure over React's `data` prop instead of the
+  // freshly-read server array, it silently clobbers the first edit when it
+  // writes -- no error, no conflict thrown, the earlier change just
+  // vanishes. Passing a function sidesteps that entirely: it's called
+  // fresh, inside the transaction, against whatever the server actually
+  // has at that moment.
   const commit = useCallback(({ main: patch, add } = {}) => {
     setSaveStatus("saving");
-    const seenRev = lastSeenRevRef.current;
+    // lastSeenRevRef is read fresh inside the queued transaction (not
+    // captured here, synchronously, at call time) and only advanced once a
+    // write is fully confirmed committed (in the .then() below, using the
+    // transaction's return value -- not from inside the retryable callback
+    // itself, since Firestore can re-run that callback on contention).
+    // Without this, two saves fired back-to-back from this same tab both
+    // capture the same stale rev before either write's onSnapshot echo
+    // arrives, so the second one always self-conflicts against its own
+    // prior write and silently fails. A real conflict -- another device's
+    // write landing first -- is still caught, since only this client's own
+    // confirmed writes advance the ref early; a stranger's write only
+    // updates it once the listener actually delivers it.
+    const needsServerRead = !!patch || (add && Object.values(add).some((v) => typeof v === "function"));
     pendingRef.current = pendingRef.current
       .then(() => runTransaction(db, async (tx) => {
-        if (patch) {
+        let newRev = null;
+        let serverMain = null;
+        if (needsServerRead) {
           const snap = await tx.get(LEDGER_REF);
-          const serverMain = snap.exists() ? snap.data() : { ...DEFAULT_MAIN, _rev: 0 };
+          serverMain = snap.exists() ? snap.data() : { ...DEFAULT_MAIN, _rev: 0 };
+        }
+        if (patch) {
           const serverRev = serverMain._rev || 0;
-          if (serverRev !== seenRev) throw new Error("conflict");
-          tx.set(LEDGER_REF, { ...serverMain, ...patch, _rev: serverRev + 1 });
+          if (serverRev !== lastSeenRevRef.current) throw new Error("conflict");
+          const resolvedPatch = typeof patch === "function" ? patch(serverMain) : patch;
+          newRev = serverRev + 1;
+          tx.set(LEDGER_REF, { ...serverMain, ...resolvedPatch, _rev: newRev });
         }
         if (add) {
-          for (const [name, items] of Object.entries(add)) {
+          for (const [name, itemsOrFn] of Object.entries(add)) {
+            const items = typeof itemsOrFn === "function" ? itemsOrFn(serverMain) : itemsOrFn;
             for (const item of items) {
               const { id, ...rest } = item;
               const docId = name === "history" ? item.date : (id || doc(subCollectionRef(name)).id);
@@ -156,8 +189,12 @@ export function useCloudLedger(enabled) {
             }
           }
         }
+        return newRev;
       }))
-      .then(() => setSaveStatus("idle"))
+      .then((newRev) => {
+        if (newRev !== null) lastSeenRevRef.current = newRev;
+        setSaveStatus("idle");
+      })
       .catch((err) => {
         console.error("Failed to save ledger", err);
         setSaveStatus(err.message === "conflict" ? "conflict" : "error");

@@ -10,10 +10,13 @@ const fmt = (n) =>
   (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // One history doc per day (upserted by date) -- see App.jsx's historyEntry, same pattern.
-function historyEntry(nextData) {
+// Takes the fresh server main doc (not React's possibly-stale `data` prop)
+// so a history write always reflects the debts array this same commit just
+// wrote, not whatever the client had cached before the transaction ran.
+function historyEntry(serverMain, debts) {
   const today = todayStr();
-  const debtTotal = (nextData.debts || []).reduce((s, d) => s + accrueDebt(d, today).balance, 0);
-  return { date: today, checking: Number(nextData.checking), savings: Number(nextData.savings), debt: debtTotal };
+  const debtTotal = (debts || []).reduce((s, d) => s + accrueDebt(d, today).balance, 0);
+  return { date: today, checking: Number(serverMain.checking), savings: Number(serverMain.savings), debt: debtTotal };
 }
 
 export default function Debts({ data, commit }) {
@@ -32,30 +35,46 @@ export default function Debts({ data, commit }) {
       creditLimit: newDebt.creditLimit ? Number(newDebt.creditLimit) : null,
       lastUpdated: todayStr(), totalPaid: 0, totalCharged: 0,
     };
-    const nextDebts = [...data.debts, debt];
-    commit({ main: { debts: nextDebts }, add: { history: [historyEntry({ ...data, debts: nextDebts })] } });
+    commit({
+      main: (serverMain) => ({ debts: [...(serverMain.debts || []), debt] }),
+      add: { history: (serverMain) => [historyEntry(serverMain, [...(serverMain.debts || []), debt])] },
+    });
     setNewDebt({ name: "", balance: "", rate: "", minPayment: "", creditLimit: "" });
   };
   const removeDebt = (id) => {
     if (!window.confirm(`Delete "${debtNameById(id)}"? This removes the account and its history from the ledger.`)) return;
-    const nextDebts = data.debts.filter((d) => d.id !== id);
-    commit({ main: { debts: nextDebts }, add: { history: [historyEntry({ ...data, debts: nextDebts })] } });
+    commit({
+      main: (serverMain) => ({ debts: (serverMain.debts || []).filter((d) => d.id !== id) }),
+      add: { history: (serverMain) => [historyEntry(serverMain, (serverMain.debts || []).filter((d) => d.id !== id))] },
+    });
   };
   const commitDebt = (id) => {
-    const d = draft[id];
-    if (!d) return;
-    const accrued = accrueDebt(data.debts.find((x) => x.id === id), todayStr());
-    const nextDebts = data.debts.map((x) => x.id === id
-      ? {
-          ...x,
-          balance: d.balance === "" || d.balance === undefined ? accrued.balance : Number(d.balance),
-          rate: d.rate === "" || d.rate === undefined ? x.rate : (d.rate === null ? null : Number(d.rate)),
-          creditLimit: d.creditLimit === "" || d.creditLimit === undefined ? x.creditLimit : (d.creditLimit === null ? null : Number(d.creditLimit)),
-          minPayment: d.minPayment === "" || d.minPayment === undefined ? x.minPayment : (d.minPayment === null ? null : Number(d.minPayment)),
-          lastUpdated: todayStr(),
-        }
-      : x);
-    commit({ main: { debts: nextDebts }, add: { history: [historyEntry({ ...data, debts: nextDebts })] } });
+    const dr = draft[id];
+    if (!dr) return;
+    commit({
+      main: (serverMain) => {
+        const nextDebts = (serverMain.debts || []).map((x) => {
+          if (x.id !== id) return x;
+          const accrued = accrueDebt(x, todayStr());
+          return {
+            ...x,
+            name: dr.name === "" || dr.name === undefined ? x.name : dr.name,
+            balance: dr.balance === "" || dr.balance === undefined ? accrued.balance : Number(dr.balance),
+            rate: dr.rate === "" || dr.rate === undefined ? x.rate : (dr.rate === null ? null : Number(dr.rate)),
+            creditLimit: dr.creditLimit === "" || dr.creditLimit === undefined ? x.creditLimit : (dr.creditLimit === null ? null : Number(dr.creditLimit)),
+            minPayment: dr.minPayment === "" || dr.minPayment === undefined ? x.minPayment : (dr.minPayment === null ? null : Number(dr.minPayment)),
+            lastUpdated: todayStr(),
+          };
+        });
+        return { debts: nextDebts };
+      },
+      add: {
+        history: (serverMain) => {
+          const nextDebts = (serverMain.debts || []).map((x) => x.id === id ? { ...x, lastUpdated: todayStr() } : x);
+          return [historyEntry(serverMain, nextDebts)];
+        },
+      },
+    });
     setDraft({ ...draft, [id]: undefined });
   };
 
@@ -73,7 +92,9 @@ export default function Debts({ data, commit }) {
             const accrued = accrueDebt(d, todayStr());
             return (
               <tr key={d.id}>
-                <Td>{d.name}</Td>
+                <Td>
+                  <Input value={dr.name ?? d.name} onChange={(v) => setDraft({ ...draft, [d.id]: { ...dr, name: v } })} width={130} onEnter={() => commitDebt(d.id)} />
+                </Td>
                 <Td align="right">
                   <Input value={dr.balance ?? String(accrued.balance.toFixed(2))} onChange={(v) => setDraft({ ...draft, [d.id]: { ...dr, balance: v } })} type="number" width={90} onEnter={() => commitDebt(d.id)} />
                 </Td>

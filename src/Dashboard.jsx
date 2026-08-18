@@ -1,7 +1,6 @@
 import { useState, useMemo } from "react";
 import { accrueDebt } from "./debtAccrual";
-import { simulate, DEFAULT_ASSUMPTIONS, payBreakdown } from "./simulationEngine";
-import { liveFixedBills } from "./Plan";
+import { DEFAULT_ASSUMPTIONS, payBreakdown } from "./simulationEngine";
 import { MONO, INK, MUTE, LINE, HEAD_BG, TEAL, GOLD, BRICK, RADIUS_SM } from "./theme";
 import { Table, Th, Td, Btn, Input, SectionTitle, Card, Note, StatRow } from "./ui";
 
@@ -12,7 +11,6 @@ const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); retur
 const fmt = (n) =>
   (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtShort = (n) => (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
-const fmtDate = (d) => d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
 /* ---------- balance / net worth trend ---------- */
 
@@ -314,9 +312,19 @@ function MonthlyBarChart({ data }) {
 
 /* ---------- main ---------- */
 
+const PAY_FIELDS = [
+  { key: "baseHourlyRate", label: "Base hourly rate" },
+  { key: "takeHomeRate", label: "Take-home rate (0–1)" },
+  { key: "otHoursPerPeriod", label: "OT hours / period" },
+  { key: "otHourlyRate", label: "OT hourly rate" },
+  { key: "onCallEventsPerMonth", label: "On-call / Sat shift events per month" },
+];
+
 export default function Dashboard({ data, commit }) {
   const [newBill, setNewBill] = useState({ name: "", amount: "", day: "" });
   const [draft, setDraft] = useState({});
+  const [payDraft, setPayDraft] = useState({});
+  const [payView, setPayView] = useState("period");
   const [granularity, setGranularity] = useState("week");
   const [activeKeys, setActiveKeys] = useState(["checking", "savings", "netWorth"]);
   const [catGranularity, setCatGranularity] = useState("month");
@@ -346,30 +354,50 @@ export default function Dashboard({ data, commit }) {
   const monthlySummary = useMemo(() => buildMonthlySummary(data), [data]);
 
   const assumptions = { ...DEFAULT_ASSUMPTIONS, ...(data.assumptions || {}) };
-  const accruedDebts = useMemo(() => data.debts.map((d) => accrueDebt(d, todayStr())), [data.debts]);
-  const plan = useMemo(
-    () => simulate({ debts: accruedDebts, savings: Number(data.savings), assumptions: { ...assumptions, fixedBillsMonthly: liveFixedBills(data) }, periods: 260, startDate: new Date() }),
-    [accruedDebts, data, assumptions]
-  );
-  const nowMonthlyIncome = payBreakdown(assumptions, 0).total * (26 / 12);
+  const pay = payBreakdown(assumptions);
+  const payScale = payView === "month" ? 26 / 12 : 1;
 
   const addBill = () => {
     if (!newBill.name || !newBill.amount) return;
-    const nextBills = [...staticBills, { id: uid(), name: newBill.name, amount: Number(newBill.amount), day: newBill.day }];
-    commit({ main: { staticBills: nextBills } });
+    const bill = { id: uid(), name: newBill.name, amount: Number(newBill.amount), day: newBill.day };
+    commit({ main: (serverMain) => ({ staticBills: [...(serverMain.staticBills || []), bill] }) });
     setNewBill({ name: "", amount: "", day: "" });
   };
   const removeBill = (id) => {
-    commit({ main: { staticBills: staticBills.filter((b) => b.id !== id) } });
+    commit({ main: (serverMain) => ({ staticBills: (serverMain.staticBills || []).filter((b) => b.id !== id) }) });
   };
   const commitBill = (id) => {
     const d = draft[id];
     if (!d) return;
-    const nextBills = staticBills.map((b) => b.id === id
-      ? { ...b, amount: d.amount === "" || d.amount === undefined ? b.amount : Number(d.amount), day: d.day ?? b.day }
-      : b);
-    commit({ main: { staticBills: nextBills } });
+    commit({
+      main: (serverMain) => ({
+        staticBills: (serverMain.staticBills || []).map((b) => b.id === id
+          ? {
+              ...b,
+              name: d.name === "" || d.name === undefined ? b.name : d.name,
+              amount: d.amount === "" || d.amount === undefined ? b.amount : Number(d.amount),
+              day: d.day ?? b.day,
+            }
+          : b),
+      }),
+    });
     setDraft({ ...draft, [id]: undefined });
+  };
+
+  const commitPay = () => {
+    if (Object.keys(payDraft).length === 0) return;
+    commit({
+      main: (serverMain) => {
+        const serverAssumptions = { ...DEFAULT_ASSUMPTIONS, ...(serverMain.assumptions || {}) };
+        const next = { ...serverAssumptions };
+        for (const [k, v] of Object.entries(payDraft)) {
+          if (v === "" || v === undefined) continue;
+          next[k] = Number(v);
+        }
+        return { assumptions: next };
+      },
+    });
+    setPayDraft({});
   };
 
   return (
@@ -382,18 +410,50 @@ export default function Dashboard({ data, commit }) {
         { label: "Net Worth", value: fmt(netWorth), color: netWorth < 0 ? BRICK : TEAL },
       ]} />
 
-      {/* Plan projection */}
-      <SectionTitle note="see the Plan page for the full model, what-if scenarios, and pay breakdown">Current Plan Projection</SectionTitle>
-      <StatRow stats={[
-        { label: "Debt-free", value: plan.payoffPeriod ? fmtDate(plan.payoffDate) : "beyond model horizon" },
-        { label: "Now — Monthly Income", value: fmt(nowMonthlyIncome), color: TEAL },
-        { label: "Total Interest", value: fmt(plan.totalInterest), color: BRICK },
-      ]} />
-      <Note>
-        "Now — Monthly Income" is today's actual pay rate, on-call schedule, and cert level, with no assumed future
-        raises — the same "Now" row shown on the Plan page's Per Month pay calculation. The debt-free date uses your
-        saved plan's assumptions, today's real (interest-accrued) debt balances, and the live Static Bills total above.
-      </Note>
+      {/* Pay reference */}
+      <SectionTitle note="editable — enter your current numbers straight from your paystub">Pay Reference</SectionTitle>
+      <Table>
+        <thead><tr><Th>Field</Th><Th align="right">Value</Th></tr></thead>
+        <tbody>
+          {PAY_FIELDS.map((f) => (
+            <tr key={f.key}>
+              <Td>{f.label}</Td>
+              <Td align="right">
+                <Input
+                  value={payDraft[f.key] ?? String(assumptions[f.key])}
+                  onChange={(v) => setPayDraft({ ...payDraft, [f.key]: v })}
+                  type="number" width={90} onEnter={commitPay}
+                />
+              </Td>
+            </tr>
+          ))}
+          <tr>
+            <Td muted>Fixed bills (from Static Bills, below)</Td>
+            <Td align="right" mono muted>{fmt(totalStaticBills)}</Td>
+          </tr>
+        </tbody>
+      </Table>
+      <div style={{ margin: "8px 0 18px" }}>
+        <Btn small primary onClick={commitPay}>save pay info</Btn>
+      </div>
+
+      <SectionTitle note="today's actual pay rate and on-call schedule, no assumed raises">Pay Calculation</SectionTitle>
+      <div style={{ display: "flex", gap: 4, marginBottom: 10 }}>
+        <Btn small color={payView === "period" ? INK : MUTE} onClick={() => setPayView("period")}>Per Period</Btn>
+        <Btn small color={payView === "month" ? INK : MUTE} onClick={() => setPayView("month")}>Per Month</Btn>
+      </div>
+      <Table>
+        <thead><tr><Th>Row</Th><Th align="right">Baseline</Th><Th align="right">OT</Th><Th align="right">On-call</Th><Th align="right">Total</Th></tr></thead>
+        <tbody>
+          <tr>
+            <Td>Now</Td>
+            <Td align="right" mono>{fmt(pay.baseline * payScale)}</Td>
+            <Td align="right" mono>{fmt(pay.ot * payScale)}</Td>
+            <Td align="right" mono>{fmt(pay.onCall * payScale)}</Td>
+            <Td align="right" mono>{fmt(pay.total * payScale)}</Td>
+          </tr>
+        </tbody>
+      </Table>
 
       {/* Balance & net worth trend */}
       <SectionTitle>Balance &amp; Net Worth Trend</SectionTitle>
@@ -467,7 +527,9 @@ export default function Dashboard({ data, commit }) {
             const d = draft[b.id] || {};
             return (
               <tr key={b.id}>
-                <Td>{b.name}</Td>
+                <Td>
+                  <Input value={d.name ?? b.name} onChange={(v) => setDraft({ ...draft, [b.id]: { ...d, name: v } })} width={130} onEnter={() => commitBill(b.id)} />
+                </Td>
                 <Td align="right">
                   <Input
                     value={d.amount ?? String(b.amount)}
