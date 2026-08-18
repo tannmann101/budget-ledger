@@ -73,6 +73,7 @@ export function useCloudLedger(enabled) {
   const [subData, setSubData] = useState({ income: [], transactions: [], expenses: [], history: [] });
   const [status, setStatus] = useState("loading"); // loading | migrating | ready | forbidden | error
   const [saveStatus, setSaveStatus] = useState("idle"); // idle | saving | error | conflict
+  const [saveError, setSaveError] = useState(null); // raw Firestore error code/message behind the last "error" status, for on-screen diagnosis
   const lastSeenRevRef = useRef(0);
   const pendingRef = useRef(Promise.resolve());
   const migratingRef = useRef(false);
@@ -151,6 +152,7 @@ export function useCloudLedger(enabled) {
   // has at that moment.
   const commit = useCallback(({ main: patch, add } = {}) => {
     setSaveStatus("saving");
+    setSaveError(null);
     // lastSeenRevRef is read fresh inside the queued transaction (not
     // captured here, synchronously, at call time) and only advanced once a
     // write is fully confirmed committed (in the .then() below, using the
@@ -206,7 +208,12 @@ export function useCloudLedger(enabled) {
       })
       .catch((err) => {
         console.error("Failed to save ledger", err);
-        setSaveStatus(err.message === "conflict" ? "conflict" : "error");
+        if (err.message === "conflict") {
+          setSaveStatus("conflict");
+        } else {
+          setSaveStatus("error");
+          setSaveError(err.code || err.message || String(err));
+        }
       });
   }, []);
 
@@ -237,5 +244,5 @@ export function useCloudLedger(enabled) {
     }
   }, []);
 
-  return { data, status, saveStatus, commit, removeItem, replaceAll };
+  return { data, status, saveStatus, saveError, commit, removeItem, replaceAll };
 }

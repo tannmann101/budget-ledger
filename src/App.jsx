@@ -410,7 +410,7 @@ function historyEntry(nextData) {
 
 export default function App() {
   const user = useAuthUser();
-  const { data, status, saveStatus, commit, replaceAll } = useCloudLedger(!!user);
+  const { data, status, saveStatus, saveError, commit, replaceAll } = useCloudLedger(!!user);
 
   return (
     <AuthGate user={user} forbidden={status === "forbidden"}>
@@ -430,13 +430,13 @@ export default function App() {
         </Centered>
       )}
       {status === "ready" && data !== null && (
-        <Ledger data={data} commit={commit} replaceAll={replaceAll} saveStatus={saveStatus} userEmail={user?.email} onSignOut={() => signOut(auth)} />
+        <Ledger data={data} commit={commit} replaceAll={replaceAll} saveStatus={saveStatus} saveError={saveError} userEmail={user?.email} onSignOut={() => signOut(auth)} />
       )}
     </AuthGate>
   );
 }
 
-function Ledger({ data, commit, replaceAll, saveStatus, userEmail, onSignOut }) {
+function Ledger({ data, commit, replaceAll, saveStatus, saveError, userEmail, onSignOut }) {
   const [spendForm, setSpendForm] = useState({ categoryId: "", amount: "" });
   const [transferAmt, setTransferAmt] = useState("");
   const [newPaycheck, setNewPaycheck] = useState({ date: todayStr(), amount: "", note: "", addToChecking: true });
@@ -741,7 +741,7 @@ function Ledger({ data, commit, replaceAll, saveStatus, userEmail, onSignOut }) 
           <div style={{ marginTop: 16, fontFamily: MONO, fontSize: 11, color: BRICK, textAlign: "center" }}>
             {saveStatus === "conflict"
               ? "Someone else saved a change at the same moment, so your last edit didn't go through — reloaded with the latest data. Please try again."
-              : "Couldn't save your last change. Check your connection and try again."}
+              : `Couldn't save your last change. Check your connection and try again.${saveError ? ` (${saveError})` : ""}`}
           </div>
         )}
         <div style={{ marginTop: 12, fontFamily: MONO, fontSize: 10.5, color: MUTE, textAlign: "center" }}>
