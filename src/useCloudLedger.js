@@ -170,7 +170,16 @@ export function useCloudLedger(enabled) {
         let serverMain = null;
         if (needsServerRead) {
           const snap = await tx.get(LEDGER_REF);
-          serverMain = snap.exists() ? snap.data() : { ...DEFAULT_MAIN, _rev: 0 };
+          // Backfill with DEFAULT_MAIN even when the doc exists: a document
+          // written before some field existed (e.g. `bills`, pre-dating the
+          // static-bills split) can be missing it entirely. Spreading a
+          // serverMain that's missing a field Firestore rules require
+          // (isValidLedger checks `bills is list`) writes a doc that still
+          // lacks it -- rules then reject the write with permission-denied,
+          // surfaced to the user as a generic "couldn't save" error with no
+          // obvious cause. Merging defaults first guarantees every write
+          // carries every required field, however old the source doc is.
+          serverMain = snap.exists() ? { ...DEFAULT_MAIN, ...snap.data() } : { ...DEFAULT_MAIN, _rev: 0 };
         }
         if (patch) {
           const serverRev = serverMain._rev || 0;
