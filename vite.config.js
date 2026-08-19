@@ -4,7 +4,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // Base must match your GitHub Pages repo name, e.g. https://<user>.github.io/budget-ledger/
 export default defineConfig({
-  base: '/budget-ledger/',
+  base: '/',
   plugins: [
     react(),
     VitePWA({
