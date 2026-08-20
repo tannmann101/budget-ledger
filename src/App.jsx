@@ -6,6 +6,7 @@ import AuthGate, { useAuthUser, Centered } from "./AuthGate";
 import Debts from "./Debts";
 import Dashboard from "./Dashboard";
 import MonthlyBudget from "./MonthlyBudget";
+import CertDashboard from "./CertDashboard";
 import { accrueDebt } from "./debtAccrual";
 import { buildReport } from "./report";
 import { MONO, SANS, PAGE, INK, MUTE, LINE, TEAL, BRICK, GOLD } from "./theme";
@@ -438,7 +439,7 @@ export default function App() {
 }
 
 function Ledger({ data, commit, replaceAll, saveStatus, saveError, userEmail, onSignOut }) {
-  const [view, setView] = useState("household"); // "household" | "budget"
+  const [view, setView] = useState("household"); // "household" | "budget" | "cert"
   const [spendForm, setSpendForm] = useState({ categoryId: "", amount: "" });
   const [transferAmt, setTransferAmt] = useState("");
   const [newPaycheck, setNewPaycheck] = useState({ date: todayStr(), amount: "", note: "", addToChecking: true });
@@ -452,6 +453,9 @@ function Ledger({ data, commit, replaceAll, saveStatus, saveError, userEmail, on
 
   if (view === "budget") {
     return <MonthlyBudget onBack={() => setView("household")} userEmail={userEmail} onSignOut={onSignOut} />;
+  }
+  if (view === "cert") {
+    return <CertDashboard onBack={() => setView("household")} userEmail={userEmail} onSignOut={onSignOut} />;
   }
 
   const currentMonth = monthStr();
@@ -604,7 +608,10 @@ function Ledger({ data, commit, replaceAll, saveStatus, saveError, userEmail, on
               { id: "dashboard", label: "Dashboard", icon: <IconDashboard /> },
             ]}
           />
-          <Btn primary color={GOLD} onClick={() => setView("budget")}>Monthly Budget &rarr;</Btn>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn primary color={TEAL} onClick={() => setView("cert")}>Cert Dashboard &rarr;</Btn>
+            <Btn primary color={GOLD} onClick={() => setView("budget")}>Monthly Budget &rarr;</Btn>
+          </div>
         </div>
 
         {page === "debts" && <Debts data={data} commit={commit} />}
