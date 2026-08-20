@@ -10,7 +10,7 @@ import CertDashboard from "./CertDashboard";
 import { accrueDebt } from "./debtAccrual";
 import { buildReport } from "./report";
 import { MONO, SANS, PAGE, INK, MUTE, LINE, TEAL, BRICK, GOLD } from "./theme";
-import { GlobalStyle, Table, Th, Td, SectionTitle, Btn, Input, Select, TabBar, StatRow } from "./ui";
+import { GlobalStyle, Table, Th, Td, SectionTitle, Btn, Input, Select, TabBar, StatRow, Note } from "./ui";
 import { IconLedger, IconDebts, IconDashboard } from "./icons";
 
 const fmt = (n) =>
@@ -19,6 +19,8 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const monthStr = (d = new Date()) => d.toISOString().slice(0, 7);
 const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
+
+const TXN_TYPES = ["income", "expense", "deposit", "withdrawal", "transfer", "debt-payment", "bill", "correction"];
 
 const DEFAULT_STATIC_BILLS = [
   { id: "static-gas-grocery", name: "Gas/Grocery Budget", amount: 700, day: "around the 1st" },
@@ -412,7 +414,7 @@ function historyEntry(nextData) {
 
 export default function App() {
   const user = useAuthUser();
-  const { data, status, saveStatus, saveError, commit, replaceAll } = useCloudLedger(!!user);
+  const { data, status, saveStatus, saveError, commit, removeItem, replaceAll } = useCloudLedger(!!user);
 
   return (
     <AuthGate user={user} forbidden={status === "forbidden"}>
@@ -432,13 +434,13 @@ export default function App() {
         </Centered>
       )}
       {status === "ready" && data !== null && (
-        <Ledger data={data} commit={commit} replaceAll={replaceAll} saveStatus={saveStatus} saveError={saveError} userEmail={user?.email} onSignOut={() => signOut(auth)} />
+        <Ledger data={data} commit={commit} removeItem={removeItem} replaceAll={replaceAll} saveStatus={saveStatus} saveError={saveError} userEmail={user?.email} onSignOut={() => signOut(auth)} />
       )}
     </AuthGate>
   );
 }
 
-function Ledger({ data, commit, replaceAll, saveStatus, saveError, userEmail, onSignOut }) {
+function Ledger({ data, commit, removeItem, replaceAll, saveStatus, saveError, userEmail, onSignOut }) {
   const [view, setView] = useState("household"); // "household" | "budget" | "cert"
   const [spendForm, setSpendForm] = useState({ categoryId: "", amount: "" });
   const [transferAmt, setTransferAmt] = useState("");
@@ -446,10 +448,13 @@ function Ledger({ data, commit, replaceAll, saveStatus, saveError, userEmail, on
   const [acctAmt, setAcctAmt] = useState({ checking: "", savings: "" });
   const [showAllTxns, setShowAllTxns] = useState(false);
   const [logExpanded, setLogExpanded] = useState(false);
+  const [catExpanded, setCatExpanded] = useState(false);
   const [page, setPage] = useState("dashboard");
   const [reportMsg, setReportMsg] = useState("");
   const [newCatName, setNewCatName] = useState("");
   const [catDraft, setCatDraft] = useState({});
+  const [newTxn, setNewTxn] = useState({ date: todayStr(), type: "expense", description: "", amount: "", account: "" });
+  const [txnDraft, setTxnDraft] = useState({});
 
   if (view === "budget") {
     return <MonthlyBudget onBack={() => setView("household")} userEmail={userEmail} onSignOut={onSignOut} />;
@@ -557,6 +562,45 @@ function Ledger({ data, commit, replaceAll, saveStatus, saveError, userEmail, on
     commit({ main: (serverMain) => ({ categories: (serverMain.categories || []).filter((c) => c.id !== id) }) });
   };
 
+  /* ---- log (transactions) ---- */
+  const addTxn = () => {
+    if (!newTxn.description || !newTxn.amount) return;
+    commit({
+      add: {
+        transactions: [{
+          date: newTxn.date || todayStr(),
+          type: newTxn.type,
+          description: newTxn.description,
+          amount: Number(newTxn.amount),
+          account: newTxn.account,
+        }],
+      },
+    });
+    setNewTxn({ date: todayStr(), type: "expense", description: "", amount: "", account: "" });
+  };
+  const commitTxn = (id) => {
+    const dr = txnDraft[id];
+    const orig = (data.transactions || []).find((t) => t.id === id);
+    if (!dr || !orig) return;
+    commit({
+      add: {
+        transactions: [{
+          id,
+          date: dr.date === "" || dr.date === undefined ? orig.date : dr.date,
+          type: dr.type === "" || dr.type === undefined ? orig.type : dr.type,
+          description: dr.description === "" || dr.description === undefined ? orig.description : dr.description,
+          amount: dr.amount === "" || dr.amount === undefined ? orig.amount : Number(dr.amount),
+          account: dr.account === "" || dr.account === undefined ? orig.account : dr.account,
+        }],
+      },
+    });
+    setTxnDraft({ ...txnDraft, [id]: undefined });
+  };
+  const removeTxn = (id) => {
+    if (!window.confirm("Delete this log entry? This only removes the log record — it does not adjust your checking/savings balances.")) return;
+    removeItem("transactions", id);
+  };
+
   const sortedTxns = [...(data.transactions || [])].sort((a, b) => b.date.localeCompare(a.date) || 0);
   const visibleTxns = showAllTxns ? sortedTxns : sortedTxns.slice(0, 40);
   const resetToSeed = () => {
@@ -652,27 +696,33 @@ function Ledger({ data, commit, replaceAll, saveStatus, saveError, userEmail, on
         </Table>
 
         {/* Categories */}
-        <SectionTitle note={`${data.categories.length} categories`}>Categories</SectionTitle>
-        <Table>
-          <thead><tr><Th>Name</Th><Th align="right"> </Th></tr></thead>
-          <tbody>
-            {data.categories.map((c) => (
-              <tr key={c.id}>
-                <Td>
-                  <Input value={catDraft[c.id] ?? c.name} onChange={(v) => setCatDraft({ ...catDraft, [c.id]: v })} width={200} onEnter={() => renameCategory(c.id)} />
-                </Td>
-                <Td align="right">
-                  <Btn small onClick={() => renameCategory(c.id)}>save</Btn>{" "}
-                  <Btn small color={BRICK} onClick={() => removeCategory(c.id)}>del</Btn>
-                </Td>
+        <SectionTitle note={`${data.categories.length} categories`}>
+          <span onClick={() => setCatExpanded((v) => !v)} style={{ cursor: "pointer", userSelect: "none" }}>
+            {catExpanded ? "▾" : "▸"} Categories
+          </span>
+        </SectionTitle>
+        {catExpanded && (
+          <Table>
+            <thead><tr><Th>Name</Th><Th align="right"> </Th></tr></thead>
+            <tbody>
+              {data.categories.map((c) => (
+                <tr key={c.id}>
+                  <Td>
+                    <Input value={catDraft[c.id] ?? c.name} onChange={(v) => setCatDraft({ ...catDraft, [c.id]: v })} width={200} onEnter={() => renameCategory(c.id)} />
+                  </Td>
+                  <Td align="right">
+                    <Btn small onClick={() => renameCategory(c.id)}>save</Btn>{" "}
+                    <Btn small color={BRICK} onClick={() => removeCategory(c.id)}>del</Btn>
+                  </Td>
+                </tr>
+              ))}
+              <tr>
+                <Td><Input value={newCatName} onChange={setNewCatName} placeholder="New category name" width={200} onEnter={addCategory} /></Td>
+                <Td align="right"><Btn small onClick={addCategory}>add</Btn></Td>
               </tr>
-            ))}
-            <tr>
-              <Td><Input value={newCatName} onChange={setNewCatName} placeholder="New category name" width={200} onEnter={addCategory} /></Td>
-              <Td align="right"><Btn small onClick={addCategory}>add</Btn></Td>
-            </tr>
-          </tbody>
-        </Table>
+            </tbody>
+          </Table>
+        )}
 
         {/* Log a paycheck */}
         <SectionTitle>Log a Paycheck</SectionTitle>
@@ -732,20 +782,49 @@ function Ledger({ data, commit, replaceAll, saveStatus, saveError, userEmail, on
               </Btn>
             </div>
             <Table>
-              <thead><tr><Th>Date</Th><Th>Type</Th><Th>Description</Th><Th align="right">Amount</Th><Th>Account</Th></tr></thead>
+              <thead><tr><Th>Date</Th><Th>Type</Th><Th>Description</Th><Th align="right">Amount</Th><Th>Account</Th><Th align="right"> </Th></tr></thead>
               <tbody>
-                {visibleTxns.length === 0 && <tr><Td colSpan={5} muted>Nothing logged yet.</Td></tr>}
-                {visibleTxns.map((t) => (
-                  <tr key={t.id}>
-                    <Td mono muted>{t.date}</Td>
-                    <Td muted style={{ textTransform: "capitalize" }}>{t.type.replace("-", " ")}</Td>
-                    <Td>{t.description}</Td>
-                    <Td align="right" mono style={{ color: t.amount < 0 ? BRICK : INK }}>{fmt(t.amount)}</Td>
-                    <Td muted>{t.account}</Td>
-                  </tr>
-                ))}
+                {visibleTxns.length === 0 && <tr><Td colSpan={6} muted>Nothing logged yet.</Td></tr>}
+                {visibleTxns.map((t) => {
+                  const dr = txnDraft[t.id] || {};
+                  return (
+                    <tr key={t.id}>
+                      <Td><Input value={dr.date ?? t.date} onChange={(v) => setTxnDraft({ ...txnDraft, [t.id]: { ...dr, date: v } })} width={100} onEnter={() => commitTxn(t.id)} /></Td>
+                      <Td>
+                        <Select
+                          value={dr.type ?? t.type}
+                          onChange={(v) => setTxnDraft({ ...txnDraft, [t.id]: { ...dr, type: v } })}
+                          options={TXN_TYPES.map((ty) => ({ id: ty, label: ty.replace("-", " ") }))}
+                          width={110}
+                        />
+                      </Td>
+                      <Td><Input value={dr.description ?? t.description} onChange={(v) => setTxnDraft({ ...txnDraft, [t.id]: { ...dr, description: v } })} width={150} onEnter={() => commitTxn(t.id)} /></Td>
+                      <Td align="right"><Input value={dr.amount ?? String(t.amount)} onChange={(v) => setTxnDraft({ ...txnDraft, [t.id]: { ...dr, amount: v } })} type="number" width={90} onEnter={() => commitTxn(t.id)} /></Td>
+                      <Td><Input value={dr.account ?? t.account} onChange={(v) => setTxnDraft({ ...txnDraft, [t.id]: { ...dr, account: v } })} width={110} onEnter={() => commitTxn(t.id)} /></Td>
+                      <Td align="right">
+                        <Btn small onClick={() => commitTxn(t.id)}>save</Btn>{" "}
+                        <Btn small color={BRICK} onClick={() => removeTxn(t.id)}>del</Btn>
+                      </Td>
+                    </tr>
+                  );
+                })}
+                <tr>
+                  <Td><Input value={newTxn.date} onChange={(v) => setNewTxn({ ...newTxn, date: v })} placeholder="YYYY-MM-DD" width={100} /></Td>
+                  <Td>
+                    <Select value={newTxn.type} onChange={(v) => setNewTxn({ ...newTxn, type: v })} options={TXN_TYPES.map((ty) => ({ id: ty, label: ty.replace("-", " ") }))} width={110} />
+                  </Td>
+                  <Td><Input value={newTxn.description} onChange={(v) => setNewTxn({ ...newTxn, description: v })} placeholder="Description" width={150} onEnter={addTxn} /></Td>
+                  <Td align="right"><Input value={newTxn.amount} onChange={(v) => setNewTxn({ ...newTxn, amount: v })} placeholder="0.00" type="number" width={90} onEnter={addTxn} /></Td>
+                  <Td><Input value={newTxn.account} onChange={(v) => setNewTxn({ ...newTxn, account: v })} placeholder="Account" width={110} onEnter={addTxn} /></Td>
+                  <Td align="right"><Btn small onClick={addTxn}>add</Btn></Td>
+                </tr>
               </tbody>
             </Table>
+            <Note>
+              This log is an editable record for reference and reporting — adding, editing, or deleting an entry here
+              does not itself move money: it never adjusts your checking/savings balances (those are edited directly
+              under Accounts, above). Use negative amounts for money going out, positive for money coming in.
+            </Note>
           </>
         )}
         </>

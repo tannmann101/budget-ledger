@@ -196,7 +196,14 @@ export function useCloudLedger(enabled) {
             for (const item of items) {
               const { id, ...rest } = item;
               const docId = name === "history" ? item.date : (id || doc(subCollectionRef(name)).id);
-              tx.set(subDocRef(name, docId), rest);
+              // merge, not overwrite: every current caller always supplies every
+              // field for a brand-new item anyway (so merge vs. replace is a
+              // no-op there), but an `add` that reuses an existing `id` to edit
+              // one field of an item (e.g. correcting a logged transaction) must
+              // not blow away that same item's other fields if this commit's
+              // `rest` was built from a client snapshot that's gone stale by the
+              // time the write lands.
+              tx.set(subDocRef(name, docId), rest, { merge: true });
             }
           }
         }
