@@ -9,8 +9,8 @@ import MonthlyBudget from "./MonthlyBudget";
 import CertDashboard from "./CertDashboard";
 import { accrueDebt } from "./debtAccrual";
 import { buildReport } from "./report";
-import { MONO, SANS, PAGE, INK, MUTE, LINE, TEAL, BRICK, GOLD } from "./theme";
-import { GlobalStyle, Table, Th, Td, SectionTitle, Btn, Input, Select, TabBar, StatRow, Note } from "./ui";
+import { MONO, MUTE, TEAL, BRICK, GOLD } from "./theme";
+import { AppShell, PageHeader, Footer, Table, Th, Td, SectionTitle, Btn, Input, Select, TabBar, StatRow, Note } from "./ui";
 import { IconLedger, IconDebts, IconDashboard } from "./icons";
 
 const fmt = (n) =>
@@ -620,29 +620,25 @@ function Ledger({ data, commit, removeItem, replaceAll, saveStatus, saveError, u
     setReportMsg("Report generated — check your downloads.");
   };
 
+  const navStatus = saveStatus === "saving" ? { label: "Saving…", tone: "pending" }
+    : saveStatus === "conflict" || saveStatus === "error" ? { label: "Not saved", tone: "err" }
+    : { label: "Synced", tone: "ok" };
+
   return (
-    <div style={{ minHeight: "100vh", background: PAGE, fontFamily: SANS }}>
-      <GlobalStyle />
-      <div style={{ maxWidth: 920, margin: "0 auto", padding: "32px 20px 80px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 8, borderBottom: `1px solid ${LINE}`, paddingBottom: 16, marginBottom: 4 }}>
-          <div>
-            <h1 style={{ fontFamily: SANS, fontSize: 21, fontWeight: 700, letterSpacing: "-0.01em", margin: 0, color: INK }}>Household Ledger</h1>
-            <div style={{ fontFamily: MONO, fontSize: 11.5, color: MUTE, marginTop: 3 }}>{new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" })}</div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-            <div style={{ display: "flex", gap: 6 }}>
-              <Btn small primary onClick={downloadReport}>report</Btn>
-            </div>
-            <div style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE }}>
-              {userEmail} · <span onClick={onSignOut} style={{ cursor: "pointer", textDecoration: "underline" }}>sign out</span>
-            </div>
-          </div>
-        </div>
+    <AppShell title="Household Ledger" status={navStatus}>
+        <PageHeader
+          eyebrow={new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" })}
+          title="Household Ledger"
+          subline="Budget, bills, and accounts. Synced between us."
+          actions={<Btn small primary onClick={downloadReport}>report</Btn>}
+          userEmail={userEmail}
+          onSignOut={onSignOut}
+        />
         {reportMsg && (
-          <div style={{ fontFamily: MONO, fontSize: 11, color: TEAL, margin: "8px 0 0" }}>{reportMsg}</div>
+          <div style={{ fontFamily: MONO, fontSize: 11, color: TEAL, margin: "10px 0 0" }}>{reportMsg}</div>
         )}
 
-        <div style={{ margin: "18px 0 6px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+        <div style={{ margin: "24px 0 6px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
           <TabBar
             active={page}
             onChange={setPage}
@@ -837,10 +833,9 @@ function Ledger({ data, commit, removeItem, replaceAll, saveStatus, saveError, u
               : `Couldn't save your last change. Check your connection and try again.${saveError ? ` (${saveError})` : ""}`}
           </div>
         )}
-        <div style={{ marginTop: 12, fontFamily: MONO, fontSize: 10.5, color: MUTE, textAlign: "center" }}>
-          {saveStatus === "saving" ? "Saving…" : "Synced live with your household."} <span onClick={resetToSeed} style={{ cursor: "pointer", textDecoration: "underline" }}>Reset to starting data</span>
-        </div>
-      </div>
-    </div>
+        <Footer>
+          {saveStatus === "saving" ? "Saving…" : "Synced live with your household."} <span className="ui-link" onClick={resetToSeed} style={{ cursor: "pointer", textDecoration: "underline" }}>Reset to starting data</span>
+        </Footer>
+    </AppShell>
   );
 }

@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
 import { auth, googleProvider } from "./firebase";
-import { SANS, MONO, PAGE, CARD, INK, MUTE, LINE, TEAL, BRICK, RADIUS, RADIUS_SM, SHADOW_CARD } from "./theme";
+import { SANS, MONO, PAGE, CARD, INK, MUTE, LINE, TEAL, BRICK, ON_ACCENT, RADIUS, RADIUS_SM, SHADOW_CARD } from "./theme";
 import { GlobalStyle } from "./ui";
 
 export function Centered({ children, bare }) {
   return (
-    <div style={{ minHeight: "100vh", background: PAGE, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: SANS, padding: 20 }}>
+    <div style={{ minHeight: "100vh", background: PAGE, color: INK, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: SANS, padding: 20 }}>
       <GlobalStyle />
       {bare ? (
         <div style={{ maxWidth: 360, textAlign: "center" }}>{children}</div>
@@ -26,8 +26,8 @@ function GoogleButton({ onClick, label = "Sign in with Google" }) {
       onClick={onClick}
       className="ui-btn ui-btn-primary"
       style={{
-        "--btn-c": INK, border: `1px solid ${INK}`, background: INK, color: "#fff", fontFamily: SANS, fontWeight: 600,
-        fontSize: 14, padding: "11px 20px", borderRadius: RADIUS, cursor: "pointer", width: "100%",
+        "--btn-c": TEAL, border: `1px solid ${TEAL}`, background: TEAL, color: ON_ACCENT, fontFamily: SANS, fontWeight: 600,
+        fontSize: 14, padding: "11px 20px", borderRadius: RADIUS_SM, cursor: "pointer", width: "100%",
       }}
     >
       {label}
@@ -64,7 +64,7 @@ export default function AuthGate({ user, forbidden, children }) {
   if (!user) {
     return (
       <Centered>
-        <div style={{ width: 8, height: 8, borderRadius: "50%", background: TEAL, margin: "0 auto 14px" }} />
+        <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: TEAL, marginBottom: 12 }}>The Gardners · Finances</div>
         <h1 style={{ fontFamily: SANS, fontSize: 21, fontWeight: 700, letterSpacing: "-0.01em", margin: "0 0 6px", color: INK }}>Household Ledger</h1>
         <p style={{ fontFamily: MONO, fontSize: 12.5, color: MUTE, margin: "0 0 22px" }}>Sign in to see your shared ledger.</p>
         <GoogleButton onClick={doSignIn} label={signingIn ? "Signing in…" : "Sign in with Google"} />

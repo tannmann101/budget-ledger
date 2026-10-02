@@ -3,33 +3,45 @@
 // Ledger/Debts/Plan/AuthGate render as one consistent, professional system
 // instead of four independently-drifting inline style sheets.
 //
-// PAGE is this app's sage-green wash -- the plan tracker app uses the same
-// card-on-colored-wash system with a terracotta wash instead, so the two
-// apps read as one family while staying visually distinct at a glance.
+// Follows the thegardners.xyz hub's design language (dark surfaces, hairline
+// borders, Instrument Sans + IBM Plex Mono, sticky blurred nav) so the app
+// reads as part of the same network, but swaps the hub's blue accent for a
+// deep forest-green wash so the finance tracker keeps its own identity.
+// The hub site loads the two web fonts via index.html; the fallbacks below
+// keep things legible if they ever fail to load.
 
-export const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-export const SANS = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, Helvetica, Arial, sans-serif";
+export const MONO = "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+export const SANS = "'Instrument Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
-export const BG = "#FFFFFF";
-export const CARD = "#FFFFFF";
-export const PAGE = "#C7CEB2";
-export const INK = "#181A17";
-export const MUTE = "#68685F";
-export const MUTE_SOFT = "#9A9A90";
-export const LINE = "#E3E2D9";
-export const HEAD_BG = "rgba(255,255,255,0.55)";
+export const PAGE = "#0b110d";        // page background (hub: --bg, tinted green)
+export const CARD = "#121a15";        // raised surface (hub: --surface)
+export const BG = "#18221c";          // inset fields / secondary surface (hub: --surface-2)
+export const HEAD_BG = "#18221c";     // table headers, tooltips, row hover
+export const INK = "#e6ebe7";         // hub: --text
+export const MUTE = "#9aa69e";        // hub: --muted
+export const MUTE_SOFT = "#6b776f";   // hub: --faint
+export const LINE = "rgba(255,255,255,0.07)";         // hub: --border
+export const LINE_STRONG = "rgba(255,255,255,0.16)";  // hub: --border-strong
+export const NAV_BG = "rgba(11,17,13,0.85)";
 
-export const TEAL = "#1F5C4F";
-export const TEAL_SOFT = "#E2EEE9";
-export const BRICK = "#A23F2A";
-export const BRICK_SOFT = "#F4E4DE";
-export const GOLD = "#8C6410";
-export const GOLD_SOFT = "#F1E7D0";
+// Semantic colors, tuned to read on the dark surfaces above. TEAL is the
+// app's green accent (positive balances, primary actions); the names are
+// kept from the old light theme so every page keeps working unchanged.
+export const TEAL = "#72b389";
+export const TEAL_SOFT = "rgba(114,179,137,0.14)";
+export const BRICK = "#d18b80";
+export const BRICK_SOFT = "rgba(209,139,128,0.13)";
+export const GOLD = "#d4b46c";
+export const GOLD_SOFT = "rgba(212,180,108,0.12)";
+export const GLOW = "rgba(114,179,137,0.12)";
 
-export const RADIUS = 16;
-export const RADIUS_SM = 10;
-export const SHADOW_CARD = "0 2px 6px rgba(24,26,23,0.06), 0 14px 32px rgba(24,26,23,0.10)";
-export const TRANSITION = "120ms ease";
+// Text drawn on top of a filled accent (primary buttons, active chips).
+export const ON_ACCENT = PAGE;
+
+export const RADIUS = 10;
+export const RADIUS_SM = 7;
+export const SHADOW_CARD = "none";
+export const TRANSITION = "150ms ease";
 
 export const softTint = (color) => {
   if (color === TEAL) return TEAL_SOFT;

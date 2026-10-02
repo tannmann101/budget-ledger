@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
-import { MONO, SANS, PAGE, INK, MUTE, LINE, CARD, HEAD_BG, TEAL, BRICK, GOLD, GOLD_SOFT, RADIUS_SM, SHADOW_CARD } from "./theme";
-import { GlobalStyle, Table, Th, Td, Btn, Input, SectionTitle, Card, Note, StatRow } from "./ui";
+import { MONO, SANS, INK, MUTE, LINE, CARD, HEAD_BG, TEAL, BRICK, GOLD, GOLD_SOFT, ON_ACCENT, RADIUS_SM, SHADOW_CARD } from "./theme";
+import { AppShell, PageHeader, Table, Th, Td, Btn, Input, SectionTitle, Card, Note, StatRow } from "./ui";
 
 // Local-only, on purpose: this is a scenario calculator ("what would this
 // cert be worth"), not a ledger of real money -- it resets on reload just
@@ -48,7 +48,7 @@ function SegControl({ value, onChange }) {
       {opts.map(([val, label], i) => {
         const active = value === val;
         const bg = active ? (val === "raise" ? TEAL : val === "bonus" ? GOLD : LINE) : "transparent";
-        const color = active ? (val === "none" ? INK : "#FFFFFF") : MUTE;
+        const color = active ? (val === "none" ? INK : ON_ACCENT) : MUTE;
         return (
           <button
             key={val} type="button" onClick={() => onChange(val)}
@@ -103,21 +103,15 @@ export default function CertDashboard({ onBack, userEmail, onSignOut }) {
   const showApproval = threshold > 0 && certCount > threshold;
 
   return (
-    <div style={{ minHeight: "100vh", background: PAGE, fontFamily: SANS }}>
-      <GlobalStyle />
-      <div style={{ maxWidth: 920, margin: "0 auto", padding: "32px 20px 80px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 8, borderBottom: `1px solid ${LINE}`, paddingBottom: 16, marginBottom: 4 }}>
-          <div>
-            <h1 style={{ fontFamily: SANS, fontSize: 21, fontWeight: 700, letterSpacing: "-0.01em", margin: 0, color: TEAL }}>Cert &rarr; Raise Dashboard</h1>
-            <div style={{ fontFamily: MONO, fontSize: 11.5, color: MUTE, marginTop: 3 }}>How the informal cert program pays out, and where you stand against the annual soft cap.</div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-            <Btn small color={TEAL} onClick={onBack}>&larr; Household Ledger</Btn>
-            <div style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE }}>
-              {userEmail} · <span onClick={onSignOut} style={{ cursor: "pointer", textDecoration: "underline" }}>sign out</span>
-            </div>
-          </div>
-        </div>
+    <AppShell title="Cert → Raise Dashboard">
+        <PageHeader
+          eyebrow="Scenario calculator"
+          title="Cert → Raise Dashboard"
+          subline="How the informal cert program pays out, and where you stand against the annual soft cap."
+          actions={<Btn small color={TEAL} onClick={onBack}>&larr; Household Ledger</Btn>}
+          userEmail={userEmail}
+          onSignOut={onSignOut}
+        />
 
         <SectionTitle note="roadmap → cert → components → payout → cap check">How It Works</SectionTitle>
         <Card style={{ overflowX: "auto" }}>
@@ -240,7 +234,6 @@ export default function CertDashboard({ onBack, userEmail, onSignOut }) {
           This page calculates live in your browser and resets when reopened — it's a scenario view, not a permanent
           record. Log finalized numbers in your Cert &amp; Raise Tracker spreadsheet for a lasting record.
         </Note>
-      </div>
-    </div>
+    </AppShell>
   );
 }
