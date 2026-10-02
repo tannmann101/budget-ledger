@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useMonthlyBudget } from "./useMonthlyBudget";
-import { MONO, SANS, PAGE, INK, MUTE, LINE, BRICK, GOLD, GOLD_SOFT } from "./theme";
-import { GlobalStyle, Table, Th, Td, Btn, Input, Select, SectionTitle, Card, Note } from "./ui";
+import { MONO, INK, MUTE, BRICK, GOLD, GOLD_SOFT } from "./theme";
+import { AppShell, PageHeader, Table, Th, Td, Btn, Input, Select, SectionTitle, Card, Note } from "./ui";
 
 // Fixed for now -- change these three numbers (they don't have to sum to any
 // particular total) if the real split changes; there's no edit UI for them
@@ -91,22 +91,21 @@ export default function MonthlyBudget({ onBack, userEmail, onSignOut }) {
   const sortedEntries = [...entries].sort((a, b) => b.date.localeCompare(a.date));
   const visibleEntries = showAllLog ? sortedEntries : sortedEntries.slice(0, 30);
 
+  const navStatus = status === "ready" ? { label: "Synced", tone: "ok" }
+    : status === "loading" ? { label: "Loading…", tone: "pending" }
+    : { label: "Offline", tone: "err" };
+
   return (
-    <div style={{ minHeight: "100vh", background: PAGE, fontFamily: SANS }}>
-      <GlobalStyle />
-      <div style={{ maxWidth: 920, margin: "0 auto", padding: "32px 20px 80px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 8, borderBottom: `1px solid ${LINE}`, paddingBottom: 16, marginBottom: 4 }}>
-          <div>
-            <h1 style={{ fontFamily: SANS, fontSize: 21, fontWeight: 700, letterSpacing: "-0.01em", margin: 0, color: GOLD }}>Monthly Budget</h1>
-            <div style={{ fontFamily: MONO, fontSize: 11.5, color: MUTE, marginTop: 3 }}>{monthLabel}</div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-            <Btn small color={GOLD} onClick={onBack}>&larr; Household Ledger</Btn>
-            <div style={{ fontFamily: MONO, fontSize: 10.5, color: MUTE }}>
-              {userEmail} · <span onClick={onSignOut} style={{ cursor: "pointer", textDecoration: "underline" }}>sign out</span>
-            </div>
-          </div>
-        </div>
+    <AppShell title="Monthly Budget" status={navStatus}>
+        <PageHeader
+          eyebrow={monthLabel}
+          accent={GOLD}
+          title="Monthly Budget"
+          subline="Fresh category caps every month, with a running log of every spend."
+          actions={<Btn small color={GOLD} onClick={onBack}>&larr; Household Ledger</Btn>}
+          userEmail={userEmail}
+          onSignOut={onSignOut}
+        />
 
         {status === "forbidden" && (
           <p style={{ fontFamily: MONO, fontSize: 12.5, color: BRICK, marginTop: 16 }}>
@@ -257,7 +256,6 @@ export default function MonthlyBudget({ onBack, userEmail, onSignOut }) {
           Separate from the household ledger — this budget resets to fresh category caps every month; the log itself
           keeps every entry forever so Totals Over Time can track trends across weeks and months.
         </Note>
-      </div>
-    </div>
+    </AppShell>
   );
 }

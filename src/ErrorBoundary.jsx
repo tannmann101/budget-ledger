@@ -1,6 +1,6 @@
 import { Component } from "react";
 import { Centered } from "./AuthGate";
-import { SANS, MONO, MUTE, BRICK, RADIUS_SM } from "./theme";
+import { SANS, MONO, MUTE, BRICK, ON_ACCENT, RADIUS_SM } from "./theme";
 
 // React error boundaries have no hook equivalent — a render error anywhere
 // below this, uncaught, would otherwise white-screen the whole app with no
@@ -27,7 +27,7 @@ export default class ErrorBoundary extends Component {
         <button
           className="ui-btn ui-btn-primary"
           onClick={() => window.location.reload()}
-          style={{ "--btn-c": BRICK, border: `1px solid ${BRICK}`, background: BRICK, color: "#fff", fontFamily: SANS, fontWeight: 600, fontSize: 14, padding: "10px 18px", borderRadius: RADIUS_SM, cursor: "pointer" }}
+          style={{ "--btn-c": BRICK, border: `1px solid ${BRICK}`, background: BRICK, color: ON_ACCENT, fontFamily: SANS, fontWeight: 600, fontSize: 14, padding: "10px 18px", borderRadius: RADIUS_SM, cursor: "pointer" }}
         >
           Reload
         </button>

@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { accrueDebt } from "./debtAccrual";
 import { DEFAULT_ASSUMPTIONS, payBreakdown } from "./simulationEngine";
-import { MONO, INK, MUTE, LINE, HEAD_BG, TEAL, GOLD, BRICK, RADIUS_SM } from "./theme";
+import { MONO, INK, MUTE, LINE, HEAD_BG, TEAL, GOLD, BRICK, ON_ACCENT, RADIUS_SM } from "./theme";
 import { Table, Th, Td, Btn, Input, SectionTitle, Card, Note, StatRow } from "./ui";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -171,7 +171,7 @@ function buildCategoryTrend(data, granularity, categories) {
 // of active categories still reads as one coherent palette instead of a
 // clashing rainbow.
 const CATEGORY_PALETTE = [
-  TEAL, BRICK, GOLD, "#3A5A8C", "#7A3B69", "#5B6B2E", "#8C4B2E", "#2E6B6B", "#6B4423", "#4A5568",
+  TEAL, BRICK, GOLD, "#8ab4d8", "#c39bc4", "#a8bf72", "#d9a27c", "#74c0bd", "#b89a7c", "#9aa3ad",
 ];
 function categoryColor(index) {
   return CATEGORY_PALETTE[index % CATEGORY_PALETTE.length];
@@ -467,7 +467,7 @@ export default function Dashboard({ data, commit }) {
           {SERIES.map((s) => (
             <span key={s.key} onClick={() => toggleSeries(s.key)} style={{
               cursor: "pointer", fontFamily: MONO, fontSize: 11, padding: "4px 9px", borderRadius: RADIUS_SM,
-              border: `1px solid ${s.color}`, color: activeKeys.includes(s.key) ? "#FFF" : s.color,
+              border: `1px solid ${s.color}`, color: activeKeys.includes(s.key) ? ON_ACCENT : s.color,
               background: activeKeys.includes(s.key) ? s.color : "transparent", transition: "120ms ease",
             }}>{s.label}</span>
           ))}
@@ -493,7 +493,7 @@ export default function Dashboard({ data, commit }) {
           return (
             <span key={c.id} onClick={() => toggleCat(c.id)} style={{
               cursor: "pointer", fontFamily: MONO, fontSize: 10.5, padding: "3px 8px", borderRadius: RADIUS_SM,
-              border: `1px solid ${color}`, color: active ? "#FFF" : color,
+              border: `1px solid ${color}`, color: active ? ON_ACCENT : color,
               background: active ? color : "transparent", transition: "120ms ease",
             }}>{c.name}</span>
           );
