@@ -235,7 +235,7 @@ export default function MonthlyBudget({ onBack, userEmail, onSignOut }) {
                   <div style={{ fontFamily: MONO, fontSize: 11, color: MUTE, marginBottom: 8 }}>
                     {fmt(allTimeTotal)} total since {TRACKING_START}
                   </div>
-                  <Table>
+                  <Table stack={false}>
                     <thead><tr><Th>Month</Th><Th align="right">Total</Th></tr></thead>
                     <tbody>
                       {allTimeByMonth.map((row) => (

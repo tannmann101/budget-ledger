@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { accrueDebt } from "./debtAccrual";
 import { DEFAULT_ASSUMPTIONS, payBreakdown } from "./simulationEngine";
+import { useElementWidth } from "./useElementWidth";
 import { MONO, INK, MUTE, LINE, HEAD_BG, TEAL, GOLD, BRICK, ON_ACCENT, RADIUS_SM } from "./theme";
 import { Table, Th, Td, Btn, Input, SectionTitle, Card, Note, StatRow } from "./ui";
 
@@ -66,7 +67,8 @@ function buildTrendPoints(history, granularity) {
 }
 
 function TrendChart({ data, activeSeries }) {
-  const W = 700, H = 230, PAD_L = 58, PAD_R = 14, PAD_T = 14, PAD_B = 26;
+  const [boxRef, boxW] = useElementWidth();
+  const W = Math.max(boxW, 280), H = 230, PAD_L = 58, PAD_R = 14, PAD_T = 14, PAD_B = 26;
   const innerW = W - PAD_L - PAD_R;
   const innerH = H - PAD_T - PAD_B;
   const allVals = data.flatMap((d) => activeSeries.map((s) => d[s.key]));
@@ -78,11 +80,11 @@ function TrendChart({ data, activeSeries }) {
   const path = (key) => data.map((d, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(d[key]).toFixed(1)}`).join(" ");
   const [hover, setHover] = useState(null);
   const gridLines = 4;
-  const step = Math.max(1, Math.ceil(data.length / 7));
+  const step = Math.max(1, Math.ceil(data.length / Math.max(2, Math.min(7, Math.floor(innerW / 64)))));
 
   return (
-    <div style={{ width: "100%", overflowX: "auto" }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 460, display: "block" }} onMouseLeave={() => setHover(null)}>
+    <div ref={boxRef} style={{ width: "100%" }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{ display: "block" }} onMouseLeave={() => setHover(null)}>
         {Array.from({ length: gridLines + 1 }).map((_, i) => {
           const gy = PAD_T + (innerH / gridLines) * i;
           const val = max - (span / gridLines) * i;
@@ -189,21 +191,23 @@ function topCategoriesByRecentSpend(data, categories, n) {
 }
 
 function CategoryTrendChart({ data, categories }) {
-  const W = 700, H = 240, PAD_L = 58, PAD_R = 14, PAD_T = 14, PAD_B = 34;
+  const [boxRef, boxW] = useElementWidth();
+  const W = Math.max(boxW, 280), H = 240, PAD_L = 58, PAD_R = 14, PAD_T = 14, PAD_B = 34;
   const innerW = W - PAD_L - PAD_R;
   const innerH = H - PAD_T - PAD_B;
   const totals = data.map((d) => categories.reduce((s, c) => s + (d[c.id] || 0), 0));
   const max = Math.max(...totals, 1);
   const groupW = innerW / data.length;
   const barW = Math.min(34, groupW * 0.6);
+  const labelStep = Math.max(1, Math.ceil(52 / groupW));
   const x = (i) => PAD_L + groupW * i + groupW / 2;
   const y = (v) => PAD_T + innerH - (v / max) * innerH;
   const [hover, setHover] = useState(null);
   const gridLines = 4;
 
   return (
-    <div style={{ width: "100%", overflowX: "auto" }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 460, display: "block" }} onMouseLeave={() => setHover(null)}>
+    <div ref={boxRef} style={{ width: "100%" }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{ display: "block" }} onMouseLeave={() => setHover(null)}>
         {Array.from({ length: gridLines + 1 }).map((_, i) => {
           const gy = PAD_T + (innerH / gridLines) * i;
           const val = max - (max / gridLines) * i;
@@ -226,7 +230,7 @@ function CategoryTrendChart({ data, categories }) {
                 return <rect key={c.id} x={x(i) - barW / 2} y={yCursor} width={barW} height={h} rx={2} fill={c.color} />;
               })}
               <rect x={x(i) - groupW / 2} y={PAD_T} width={groupW} height={innerH} fill="transparent" />
-              <text x={x(i)} y={H - 14} textAnchor="middle" fontFamily={MONO} fontSize="9.5" fill={MUTE}>{d.label}</text>
+              {(i % labelStep === 0 || i === data.length - 1) && <text x={x(i)} y={H - 14} textAnchor="middle" fontFamily={MONO} fontSize="9.5" fill={MUTE}>{d.label}</text>}
             </g>
           );
         })}
@@ -265,12 +269,14 @@ function monthLabel(monthStr) {
   return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "short", year: "2-digit" });
 }
 function MonthlyBarChart({ data }) {
-  const W = 700, H = 220, PAD_L = 58, PAD_R = 14, PAD_T = 14, PAD_B = 34;
+  const [boxRef, boxW] = useElementWidth();
+  const W = Math.max(boxW, 280), H = 220, PAD_L = 58, PAD_R = 14, PAD_T = 14, PAD_B = 34;
   const innerW = W - PAD_L - PAD_R;
   const innerH = H - PAD_T - PAD_B;
   const max = Math.max(...data.flatMap((d) => [d.income, d.spending]), 1);
   const groupW = innerW / data.length;
   const barW = Math.min(20, groupW * 0.32);
+  const labelStep = Math.max(1, Math.ceil(52 / groupW));
   const x = (i) => PAD_L + groupW * i + groupW / 2;
   const y = (v) => PAD_T + innerH - (v / max) * innerH;
   const barH = (v) => (v / max) * innerH;
@@ -278,8 +284,8 @@ function MonthlyBarChart({ data }) {
   const gridLines = 4;
 
   return (
-    <div style={{ width: "100%", overflowX: "auto" }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 460, display: "block" }} onMouseLeave={() => setHover(null)}>
+    <div ref={boxRef} style={{ width: "100%" }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{ display: "block" }} onMouseLeave={() => setHover(null)}>
         {Array.from({ length: gridLines + 1 }).map((_, i) => {
           const gy = PAD_T + (innerH / gridLines) * i;
           const val = max - (max / gridLines) * i;
@@ -295,7 +301,7 @@ function MonthlyBarChart({ data }) {
             <rect x={x(i) - barW - 2} y={y(d.income)} width={barW} height={Math.max(barH(d.income), 0)} rx={2} fill={TEAL} />
             <rect x={x(i) + 2} y={y(d.spending)} width={barW} height={Math.max(barH(d.spending), 0)} rx={2} fill={BRICK} />
             <rect x={x(i) - groupW / 2} y={PAD_T} width={groupW} height={innerH} fill="transparent" />
-            <text x={x(i)} y={H - 14} textAnchor="middle" fontFamily={MONO} fontSize="9.5" fill={MUTE}>{monthLabel(d.month)}</text>
+            {(i % labelStep === 0 || i === data.length - 1) && <text x={x(i)} y={H - 14} textAnchor="middle" fontFamily={MONO} fontSize="9.5" fill={MUTE}>{monthLabel(d.month)}</text>}
           </g>
         ))}
       </svg>
@@ -412,7 +418,7 @@ export default function Dashboard({ data, commit }) {
 
       {/* Pay reference */}
       <SectionTitle note="editable — enter your current numbers straight from your paystub">Pay Reference</SectionTitle>
-      <Table>
+      <Table stack={false}>
         <thead><tr><Th>Field</Th><Th align="right">Value</Th></tr></thead>
         <tbody>
           {PAY_FIELDS.map((f) => (

@@ -3,6 +3,7 @@
 // place the app's "look" lives, so every page renders as one consistent
 // system instead of four copies that can drift out of sync.
 
+import { useRef, useLayoutEffect } from "react";
 import { MONO, SANS, PAGE, BG, CARD, INK, MUTE, MUTE_SOFT, LINE, LINE_STRONG, NAV_BG, HEAD_BG, TEAL, TEAL_SOFT, BRICK, GLOW, ON_ACCENT, RADIUS, RADIUS_SM, SHADOW_CARD, TRANSITION } from "./theme";
 
 // Where the "← Home" link in the nav goes -- the household hub site.
@@ -50,6 +51,40 @@ export function GlobalStyle() {
       @media (min-width: 900px) {
         .ui-nav { padding: 0 44px; height: 64px; }
         .ui-main { padding: 56px 44px 120px; }
+      }
+      /* Phone-width tables: each row becomes a small card of labeled lines
+         (label left, value right) with its action buttons along the bottom,
+         instead of a wide grid you'd have to scroll sideways. Labels come
+         from the column headers -- see Table below. */
+      @media (max-width: 640px) {
+        .ui-stack table, .ui-stack tbody { display: block; }
+        .ui-stack thead { display: none; }
+        .ui-stack tr { display: flex; flex-direction: column; gap: 8px; padding: 14px 14px 12px; border-bottom: 1px solid ${LINE}; }
+        .ui-stack tbody tr:last-child { border-bottom: none; }
+        .ui-stack tbody tr:hover td { background: transparent; }
+        .ui-stack td {
+          display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+          padding: 0 !important; border: none !important; background: transparent !important;
+          white-space: normal !important; text-align: right !important; min-height: 30px;
+        }
+        .ui-stack td::before {
+          content: attr(data-label); margin-right: auto; text-align: left;
+          font-family: ${MONO}; font-size: 10.5px; font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; color: ${MUTE_SOFT};
+        }
+        .ui-stack td[data-label=""]::before { display: none; }
+        .ui-stack td[data-label=""] { justify-content: flex-end; gap: 6px; }
+        .ui-stack td[data-label=""]:only-child { justify-content: flex-start; text-align: left !important; font-weight: 400; }
+        .ui-stack td[data-label=""]:not(:first-child) { padding-top: 4px !important; }
+        .ui-stack td .ui-field { width: 58% !important; }
+        /* A plain-text first cell (an account or row name) becomes the card's title. */
+        .ui-stack td[data-title] { justify-content: flex-start; text-align: left !important; font-weight: 600; font-size: 14px; color: ${INK}; }
+      }
+      /* Cert page "How It Works" strip: a vertical flow on phones. */
+      .ui-flow { display: flex; gap: 6px; }
+      @media (max-width: 640px) {
+        .ui-flow { flex-direction: column; }
+        .ui-flow > .ui-flow-step { max-width: none !important; flex: 1 1 auto !important; }
+        .ui-flow > .ui-flow-arrow { transform: rotate(90deg); padding: 0 !important; }
       }
       .ui-header-side { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
       @media (max-width: 600px) {
@@ -128,10 +163,40 @@ export function Footer({ children }) {
   );
 }
 
-export function Table({ children }) {
+// stack: on phone widths, re-flow each row into a labeled card (see the
+// .ui-stack rules in GlobalStyle). Pass stack={false} for narrow two-column
+// tables that already fit a phone as-is.
+export function Table({ children, stack = true }) {
+  const ref = useRef(null);
+  // Copy each column's header text onto its body cells as data-label, so the
+  // stacked layout can show "Amount  $12.00" without every table having to
+  // pass labels by hand. Runs after each render to pick up added rows.
+  useLayoutEffect(() => {
+    const table = ref.current;
+    if (!stack || !table || !table.tHead || !table.tHead.rows[0]) return;
+    const headers = [];
+    for (const th of table.tHead.rows[0].cells) {
+      for (let k = 0; k < th.colSpan; k++) headers.push(th.textContent.trim());
+    }
+    for (const body of table.tBodies) {
+      for (const row of body.rows) {
+        let col = 0;
+        for (const cell of row.cells) {
+          // A cell spanning the whole row (e.g. "Nothing logged yet") gets no label.
+          // A plain-text first cell (no inputs) is the row's name: shown as the card title.
+          const isTitle = col === 0 && row.cells.length > 1 && !cell.querySelector("input, select, button");
+          const label = isTitle || (row.cells.length === 1 && cell.colSpan > 1) ? "" : headers[col] || "";
+          if (cell.dataset.label !== label) cell.dataset.label = label;
+          if (isTitle) cell.dataset.title = "";
+          else delete cell.dataset.title;
+          col += cell.colSpan;
+        }
+      }
+    }
+  });
   return (
-    <div style={{ overflowX: "auto", overflowY: "hidden", border: `1px solid ${LINE}`, borderRadius: RADIUS, boxShadow: SHADOW_CARD, background: CARD }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: SANS }}>
+    <div className={stack ? "ui-stack" : undefined} style={{ overflowX: "auto", overflowY: "hidden", border: `1px solid ${LINE}`, borderRadius: RADIUS, boxShadow: SHADOW_CARD, background: CARD }}>
+      <table ref={ref} style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: SANS }}>
         {children}
       </table>
     </div>
