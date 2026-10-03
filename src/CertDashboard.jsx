@@ -115,10 +115,10 @@ export default function CertDashboard({ onBack, userEmail, onSignOut }) {
 
         <SectionTitle note="roadmap → cert → components → payout → cap check">How It Works</SectionTitle>
         <Card style={{ overflowX: "auto" }}>
-          <div style={{ display: "flex", gap: 6, paddingBottom: 2 }}>
+          <div className="ui-flow" style={{ paddingBottom: 2 }}>
             {FLOW_STEPS.flatMap((step, i) => {
               const items = [
-                <div key={`step-${i}`} style={{
+                <div key={`step-${i}`} className="ui-flow-step" style={{
                   flex: "1 1 170px", minWidth: 150, maxWidth: 190,
                   background: step.decision ? "transparent" : HEAD_BG,
                   border: `1px ${step.decision ? "dashed" : "solid"} ${LINE}`, borderRadius: RADIUS_SM,
@@ -137,7 +137,7 @@ export default function CertDashboard({ onBack, userEmail, onSignOut }) {
                 </div>,
               ];
               if (i < FLOW_STEPS.length - 1) {
-                items.push(<div key={`arrow-${i}`} style={{ flex: "0 0 auto", alignSelf: "center", color: MUTE, fontSize: 16, padding: "0 2px" }}>&rarr;</div>);
+                items.push(<div key={`arrow-${i}`} className="ui-flow-arrow" style={{ flex: "0 0 auto", alignSelf: "center", color: MUTE, fontSize: 16, padding: "0 2px" }}>&rarr;</div>);
               }
               return items;
             })}
@@ -145,7 +145,7 @@ export default function CertDashboard({ onBack, userEmail, onSignOut }) {
         </Card>
 
         <SectionTitle>Settings</SectionTitle>
-        <Table>
+        <Table stack={false}>
           <thead><tr><Th>Field</Th><Th align="right">Value</Th></tr></thead>
           <tbody>
             <tr>

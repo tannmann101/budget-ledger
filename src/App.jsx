@@ -698,7 +698,7 @@ function Ledger({ data, commit, removeItem, replaceAll, saveStatus, saveError, u
           </span>
         </SectionTitle>
         {catExpanded && (
-          <Table>
+          <Table stack={false}>
             <thead><tr><Th>Name</Th><Th align="right"> </Th></tr></thead>
             <tbody>
               {data.categories.map((c) => (
